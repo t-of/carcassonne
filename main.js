@@ -489,41 +489,16 @@ class Game {
   meepleOptions(x, y) {
     const nb = this.board.get(tileKey(x, y));
     const kind = TILE_KINDS[nb.kindIndex];
-    const info = analyzeTile(kind, nb.rot);
+    const at = featureAnchors(nb.kindIndex, nb.rot);
     const options = [];
-    kind.cityGroups.forEach((g, gi) => {
-      const key = cityKey(x, y, gi);
-      const meta = this.dsu.meta_(key);
-      if (meta.meeples.length === 0) {
-        const abs = g.edges.map((li) => (li + nb.rot) % 4);
-        options.push({ key, type: 'city', anchor: avgEdgeAnchor(abs) });
-      }
-    });
-    kind.roadGroups.forEach((g, gi) => {
-      const key = roadKey(x, y, gi);
-      const meta = this.dsu.meta_(key);
-      if (meta.meeples.length === 0) {
-        const abs = g.edges.map((li) => (li + nb.rot) % 4);
-        // 駒は道の線の上（2 辺の道は中点どうしの真ん中）
-        const anchor = abs.length === 2
-          ? [(EDGE_MID[abs[0]][0] + EDGE_MID[abs[1]][0]) / 2, (EDGE_MID[abs[0]][1] + EDGE_MID[abs[1]][1]) / 2]
-          : avgEdgeAnchor(abs);
-        options.push({ key, type: 'road', anchor });
-      }
-    });
+    const free = (key) => this.dsu.meta_(key).meeples.length === 0;
+    kind.cityGroups.forEach((g, gi) => { const key = cityKey(x, y, gi); if (free(key)) options.push({ key, type: 'city', anchor: at.city[gi] }); });
+    kind.roadGroups.forEach((g, gi) => { const key = roadKey(x, y, gi); if (free(key)) options.push({ key, type: 'road', anchor: at.road[gi] }); });
     if (kind.cloister) {
       const c = this.cloisters.get(tileKey(x, y));
       if (c && !c.meeple) options.push({ key: 'M', type: 'cloister', anchor: [0.5, 0.5] });
     }
-    info.regions.forEach((region, ri) => {
-      const key = fieldKey(x, y, ri);
-      const meta = this.dsu.meta_(key);
-      if (meta.meeples.length === 0) {
-        // 区画の端の点を少し内側へ（平均だと都市・道の駒と重なることがある）
-        const [px, py] = POINT_COORD[region.points[0]];
-        options.push({ key, type: 'field', anchor: [px * 0.8 + 0.1, py * 0.8 + 0.1] });
-      }
-    });
+    at.field.forEach((anchor, ri) => { const key = fieldKey(x, y, ri); if (free(key)) options.push({ key, type: 'field', anchor }); });
     return options;
   }
 
@@ -582,11 +557,102 @@ class Game {
   }
 }
 
-function avgEdgeAnchor(dirs) {
-  let ax = 0, ay = 0;
-  for (const d of dirs) { ax += EDGE_MID[d][0]; ay += EDGE_MID[d][1]; }
-  ax /= dirs.length; ay /= dirs.length;
-  return [ax * 0.6 + 0.2, ay * 0.6 + 0.2];
+// ---- 駒を置く位置 ----
+// 道はその線の中点。都市・草原は、その区画の中で縁（ほかの区画・道・修道院・タイルの端）から一番遠い点。
+// タイルを細かい升目に分けて求める。種類と向きごとに 1 回だけ計算する。
+const ANCHOR_CACHE = new Map();
+function featureAnchors(kindIndex, rot) {
+  const ck = kindIndex * 4 + rot;
+  if (ANCHOR_CACHE.has(ck)) return ANCHOR_CACHE.get(ck);
+  const kind = TILE_KINDS[kindIndex];
+  const info = analyzeTile(kind, rot);
+  const N = 49; // 奇数にして中心の升目が真ん中に来るように
+  const segs = kind.roadGroups.map((g) => {
+    const abs = g.edges.map((li) => (li + rot) % 4);
+    return abs.length === 2 ? [EDGE_MID[abs[0]], EDGE_MID[abs[1]]] : [[0.5, 0.5], EDGE_MID[abs[0]]];
+  });
+  const segDist = (x, y, [[ax, ay], [bx, by]]) => {
+    const dx = bx - ax, dy = by - ay;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)));
+    return Math.hypot(x - ax - t * dx, y - ay - t * dy);
+  };
+  const side = (x, y, [ax, ay], [bx, by]) => (bx - ax) * (y - ay) - (by - ay) * (x - ax);
+  const CL = [[0.5, 0.28], [0.68, 0.62], [0.32, 0.62]]; // 修道院の三角形（描画と同じ）
+  const inCloister = (x, y) => {
+    const s1 = side(x, y, CL[0], CL[1]), s2 = side(x, y, CL[1], CL[2]), s3 = side(x, y, CL[2], CL[0]);
+    return (s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0);
+  };
+  // 升目ごとの区画: 'c<gi>'（都市）/ 'x'（道・修道院）/ 'f<ri>'（草原）
+  const lab = new Array(N * N).fill(null);
+  const cellXY = (i) => [((i % N) + 0.5) / N, (Math.floor(i / N) + 0.5) / N];
+  for (let i = 0; i < N * N; i++) {
+    const [x, y] = cellXY(i);
+    // 都市は中心と辺の両端を結ぶ三角形（描画と同じ）。升目の四隅のどれかが都市なら都市にする
+    // （三角形どうしが中心の 1 点で接するところを草原が通り抜けないように）
+    const h = 0.5 / N;
+    const d = [[x, y], [x - h, y - h], [x + h, y - h], [x - h, y + h], [x + h, y + h]]
+      .map(([sx, sy]) => (sy <= sx && sy <= 1 - sx ? 0 : sx >= sy && sx >= 1 - sy ? 1 : sy >= sx && sy >= 1 - sx ? 2 : 3))
+      .find((e) => info.absEdges[e] === 'C');
+    if (d !== undefined) lab[i] = 'c' + info.cityGroupAt[d];
+    else if (segs.some((sg) => segDist(x, y, sg) < 1.2 / N) || (kind.cloister && inCloister(x, y))) lab[i] = 'x';
+  }
+  // 草原: 空いた升目をつながりごとに分け、外周の 8 点からどの区画かを決める
+  const comp = new Array(N * N).fill(-1);
+  let nComp = 0;
+  for (let i = 0; i < N * N; i++) {
+    if (lab[i] !== null || comp[i] !== -1) continue;
+    const stack = [i]; comp[i] = nComp;
+    while (stack.length) {
+      const c = stack.pop(), cx = c % N, cy = Math.floor(c / N);
+      for (const [nx, ny] of [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]]) {
+        if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+        const n = ny * N + nx;
+        if (lab[n] === null && comp[n] === -1) { comp[n] = nComp; stack.push(n); }
+      }
+    }
+    nComp++;
+  }
+  const compRegion = new Array(nComp).fill(null);
+  info.regions.forEach((region, ri) => {
+    for (const p of region.points) {
+      const [px, py] = POINT_COORD[p];
+      const cx = Math.min(N - 1, Math.floor((px * 0.94 + 0.03) * N)), cy = Math.min(N - 1, Math.floor((py * 0.94 + 0.03) * N));
+      const c = comp[cy * N + cx];
+      if (c >= 0) compRegion[c] = ri;
+    }
+  });
+  for (let i = 0; i < N * N; i++) if (lab[i] === null) lab[i] = compRegion[comp[i]] == null ? 'x' : 'f' + compRegion[comp[i]];
+  // 区画ごとに、縁から十分遠い升目（一番遠い点の 85% 以上）のうち、区画の重心に一番近いもの（左右対称になりやすい）
+  const pole = (L) => {
+    const cells = [], edge = [];
+    for (let i = 0; i < N * N; i++) {
+      if (lab[i] === L) { cells.push(i); continue; }
+      const cx = i % N, cy = Math.floor(i / N);
+      if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => { const nx = cx + dx, ny = cy + dy; return nx >= 0 && ny >= 0 && nx < N && ny < N && lab[ny * N + nx] === L; })) edge.push(cellXY(i));
+    }
+    if (!cells.length) return [0.5, 0.5];
+    const pts = cells.map(cellXY);
+    const mx = pts.reduce((s, p) => s + p[0], 0) / pts.length, my = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+    const ds = pts.map(([x, y]) => {
+      let d = Math.min(x, y, 1 - x, 1 - y);
+      for (const [ex, ey] of edge) d = Math.min(d, Math.hypot(x - ex, y - ey));
+      return d;
+    });
+    const maxD = Math.max(...ds);
+    let best = null, bestC = Infinity;
+    pts.forEach(([x, y], k) => {
+      const c = Math.hypot(x - mx, y - my);
+      if (ds[k] >= maxD * 0.85 - 1e-9 && c < bestC - 1e-9) { best = [x, y]; bestC = c; }
+    });
+    return best;
+  };
+  const res = {
+    city: kind.cityGroups.map((g, gi) => pole('c' + gi)),
+    road: segs.map(([[ax, ay], [bx, by]]) => [(ax + bx) / 2, (ay + by) / 2]),
+    field: info.regions.map((r, ri) => pole('f' + ri)),
+  };
+  ANCHOR_CACHE.set(ck, res);
+  return res;
 }
 
 function shuffle(arr) {
@@ -836,7 +902,7 @@ function drawTileArt(ctx, kindIndex, rot, px, py, size, opts = {}) {
       ctx.fillStyle = PLAYER_COLORS[m.player];
       ctx.strokeStyle = 'rgba(0,0,0,0.4)';
       ctx.lineWidth = 1.5;
-      hexPath(ctx, m.anchor[0] * size, m.anchor[1] * size, size * 0.12);
+      hexPath(ctx, m.anchor[0] * size, m.anchor[1] * size, size * 0.075);
       ctx.fill();
       ctx.stroke();
     }
