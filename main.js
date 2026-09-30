@@ -624,6 +624,9 @@ const els = {
   deckCount: document.getElementById('deckCount'),
   skipBtn: document.getElementById('skipBtn'),
   placeBtn: document.getElementById('placeBtn'),
+  listBtn: document.getElementById('listBtn'),
+  listDialog: document.getElementById('listDialog'),
+  listGrid: document.getElementById('listGrid'),
   result: document.getElementById('result'),
   ranking: document.getElementById('ranking'),
   restartBtn: document.getElementById('restartBtn'),
@@ -1032,6 +1035,23 @@ els.placeBtn.addEventListener('click', () => {
   if (ghost && game.pendingTile) commitPlacement(ghost.x, ghost.y, previewRot);
 });
 els.skipBtn.addEventListener('click', skipMeeple);
+els.listBtn.addEventListener('click', () => {
+  if (!game) return;
+  const left = TILE_KINDS.map(() => 0);
+  for (const k of game.deckOrder.slice(game.deckPos)) left[k]++;
+  els.listGrid.replaceChildren(...TILE_KINDS.map((kind, i) => {
+    const item = document.createElement('div');
+    item.className = 'tile-list__item' + (left[i] ? '' : ' empty');
+    const c = document.createElement('canvas');
+    c.width = c.height = 112;
+    drawTileArt(c.getContext('2d'), i, 0, 0, 0, 112);
+    const label = document.createElement('span');
+    label.textContent = `${left[i]} / ${kind.count}`;
+    item.append(c, label);
+    return item;
+  }));
+  els.listDialog.showModal();
+});
 els.restartBtn.addEventListener('click', () => {
   try { localStorage.removeItem(STORE + 'game'); } catch { /* noop */ }
   els.result.hidden = true;

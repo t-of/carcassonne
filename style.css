@@ -134,3 +134,17 @@ button { font: inherit; color: inherit; }
 }
 .ranking .rank-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
 .ranking .rank-score { margin-left: auto; font-weight: bold; }
+
+/* ---- タイル一覧 ---- */
+#listBtn { margin-top: 6px; }
+.tile-list {
+  border: none; border-radius: 12px; padding: 16px;
+  background: var(--bg); color: var(--fg);
+  width: min(92vw, 480px); max-height: 86dvh;
+}
+.tile-list::backdrop { background: rgba(0, 0, 0, 0.6); }
+.tile-list__head { margin: 0 0 12px; font-size: 14px; }
+.tile-list__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.tile-list__item { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; }
+.tile-list__item canvas { width: 56px; height: 56px; }
+.tile-list__item.empty { opacity: 0.35; }
