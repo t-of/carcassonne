@@ -498,7 +498,11 @@ class Game {
       const meta = this.dsu.meta_(key);
       if (meta.meeples.length === 0) {
         const abs = g.edges.map((li) => (li + nb.rot) % 4);
-        options.push({ key, type: 'road', anchor: avgEdgeAnchor(abs) });
+        // 駒は道の線の上（2 辺の道は中点どうしの真ん中）
+        const anchor = abs.length === 2
+          ? [(EDGE_MID[abs[0]][0] + EDGE_MID[abs[1]][0]) / 2, (EDGE_MID[abs[0]][1] + EDGE_MID[abs[1]][1]) / 2]
+          : avgEdgeAnchor(abs);
+        options.push({ key, type: 'road', anchor });
       }
     });
     if (kind.cloister) {
@@ -784,19 +788,17 @@ function drawTileArt(ctx, kindIndex, rot, px, py, size, opts = {}) {
   ctx.lineCap = 'round';
   kind.roadGroups.forEach((g) => {
     const abs = g.edges.map((li) => (li + rot) % 4);
-    for (const d of abs) {
-      ctx.beginPath();
-      ctx.moveTo(size * 0.5, size * 0.5);
-      ctx.lineTo(EDGE_MID[d][0] * size, EDGE_MID[d][1] * size);
-      ctx.stroke();
-    }
+    // 2 辺をつなぐ道は辺の中点どうしを直線で（曲がり道は斜め線）、1 辺だけの道は中央まで
+    const [a, b] = abs.length === 2 ? abs.map((d) => EDGE_MID[d]) : [[0.5, 0.5], EDGE_MID[abs[0]]];
+    ctx.beginPath();
+    ctx.moveTo(a[0] * size, a[1] * size);
+    ctx.lineTo(b[0] * size, b[1] * size);
+    ctx.stroke();
   });
   // 黒点は交差点だけ（都市・修道院で止まる道には描かない）
   if (kind.roadGroups.length >= 2) {
     ctx.fillStyle = '#2a2a2a';
-    ctx.beginPath();
-    ctx.arc(size * 0.5, size * 0.5, size * 0.1, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillRect(size * 0.43, size * 0.43, size * 0.14, size * 0.14);
   }
 
   // 修道院
