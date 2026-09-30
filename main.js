@@ -893,9 +893,15 @@ function drawTileArt(ctx, kindIndex, rot, px, py, size, opts = {}) {
   }
 
   // 枠
+  // 枠（opts.joined[d] が true の辺は、となりのタイルと接しているので描かない）
   ctx.strokeStyle = 'rgba(0,0,0,0.15)';
   ctx.lineWidth = 1;
-  ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
+  const j = opts.joined || [];
+  const lo = 0.5, hi = size - 0.5;
+  const sides = [[lo, lo, hi, lo], [hi, lo, hi, hi], [hi, hi, lo, hi], [lo, hi, lo, lo]];
+  ctx.beginPath();
+  sides.forEach(([x1, y1, x2, y2], d) => { if (!j[d]) { ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); } });
+  ctx.stroke();
 
   if (opts.meeples) {
     for (const m of opts.meeples) {
@@ -978,7 +984,8 @@ function drawBoard() {
     const px = view.ox + x * size;
     const py = view.oy + y * size;
     if (px + size < 0 || py + size < 0 || px > canvas.width || py > canvas.height) continue;
-    drawTileArt(ctx, tile.kindIndex, tile.rot, px, py, size, { meeples: meeples.get(key) });
+    const joined = [0, 1, 2, 3].map((d) => game.board.has(tileKey(x + DX[d], y + DY[d])));
+    drawTileArt(ctx, tile.kindIndex, tile.rot, px, py, size, { meeples: meeples.get(key), joined });
   }
 
   // 置ける場所のハイライト
