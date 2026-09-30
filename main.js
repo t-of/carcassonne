@@ -827,7 +827,7 @@ function meepleHexes(color, n) {
 }
 
 // 得点ボード: 0〜49 のマスを 10 列 × 5 段にすき間なく並べた輪（49 の次は 0 に戻る）
-// 0 は左上。左の列を下り、次の列から 1〜4 段目を上下に折り返して右端まで行き、一番上の段を左へ戻る
+// 0 は左上。一番上の段を右へ進み、2〜5 段目を上下に折り返しながら左へ戻り、左の列を上って 0 に帰る
 // 駒は点数を 50 で割った余りのマスに置き、50 点以上なら駒に +50・+100… と書く
 const TRACK_COLS = 10, TRACK_ROWS = 5;
 const TRACK_PATH = (() => {
@@ -837,7 +837,7 @@ const TRACK_PATH = (() => {
     for (let k = 0; k < TRACK_ROWS - 1; k++) path.push([c, c % 2 ? TRACK_ROWS - 1 - k : k + 1]);
   }
   for (let c = TRACK_COLS - 1; c >= 1; c--) path.push([c, 0]);
-  return path;
+  return [path[0], ...path.slice(1).reverse()]; // 上の組み立ては逆回りなので、0 を残して向きを反対にする
 })();
 const trackCell = (n) => TRACK_PATH[n];
 function drawTrack() {
