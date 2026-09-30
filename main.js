@@ -623,7 +623,7 @@ function featureAnchors(kindIndex, rot) {
   });
   for (let i = 0; i < N * N; i++) if (lab[i] === null) lab[i] = compRegion[comp[i]] == null ? 'x' : 'f' + compRegion[comp[i]];
   // 区画ごとに、縁から十分遠い升目（一番遠い点の 85% 以上）のうち、区画の重心に一番近いもの（左右対称になりやすい）
-  const pole = (L) => {
+  const pole = (L, exact) => {
     const cells = [], edge = [];
     for (let i = 0; i < N * N; i++) {
       if (lab[i] === L) { cells.push(i); continue; }
@@ -632,12 +632,16 @@ function featureAnchors(kindIndex, rot) {
     }
     if (!cells.length) return [0.5, 0.5];
     const pts = cells.map(cellXY);
-    const mx = pts.reduce((s, p) => s + p[0], 0) / pts.length, my = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+    const [mx, my] = exact || [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length];
     const ds = pts.map(([x, y]) => {
       let d = Math.min(x, y, 1 - x, 1 - y);
       for (const [ex, ey] of edge) d = Math.min(d, Math.hypot(x - ex, y - ey));
       return d;
     });
+    // 重心が区画の中にあって縁から十分離れていれば、重心に置く（左右対称になる）
+    let near = 0;
+    pts.forEach(([x, y], k) => { if (Math.hypot(x - mx, y - my) < Math.hypot(pts[near][0] - mx, pts[near][1] - my)) near = k; });
+    if (Math.hypot(pts[near][0] - mx, pts[near][1] - my) < 1 / N && ds[near] >= 0.1) return exact || pts[near];
     const maxD = Math.max(...ds);
     let best = null, bestC = Infinity;
     pts.forEach(([x, y], k) => {
@@ -647,7 +651,12 @@ function featureAnchors(kindIndex, rot) {
     return best;
   };
   const res = {
-    city: kind.cityGroups.map((g, gi) => pole('c' + gi)),
+    // 都市の重心は、辺ごとの三角形（同じ面積）の重心の平均で正確に出せる
+    city: kind.cityGroups.map((g, gi) => {
+      const abs = g.edges.map((li) => (li + rot) % 4);
+      const cs = abs.map((d) => { const [[ax, ay], [bx, by]] = EDGE_CORNERS[d]; return [(0.5 + ax + bx) / 3, (0.5 + ay + by) / 3]; });
+      return pole('c' + gi, [cs.reduce((t, c) => t + c[0], 0) / cs.length, cs.reduce((t, c) => t + c[1], 0) / cs.length]);
+    }),
     road: segs.map(([[ax, ay], [bx, by]]) => [(ax + bx) / 2, (ay + by) / 2]),
     field: info.regions.map((r, ri) => pole('f' + ri)),
   };
@@ -1010,9 +1019,10 @@ function fitView() {
   x0--; x1++; y0 -= 2; y1 += 2; // 横は周り 1 マス、縦は上下 2 マスずつ余白
   const w = x1 - x0 + 1, h = y1 - y0 + 1;
   const dpr = Number(canvas.dataset.dpr || 1);
-  view.scale = Math.min(canvas.width / w, canvas.height / h, 96 * dpr);
-  view.ox = (canvas.width - w * view.scale) / 2 - x0 * view.scale;
-  view.oy = (canvas.height - h * view.scale) / 2 - y0 * view.scale;
+  // 整数のピクセルにそろえる（小数だとタイルの境目に薄い線が出る）
+  view.scale = Math.floor(Math.min(canvas.width / w, canvas.height / h, 96 * dpr));
+  view.ox = Math.round((canvas.width - w * view.scale) / 2 - x0 * view.scale);
+  view.oy = Math.round((canvas.height - h * view.scale) / 2 - y0 * view.scale);
 }
 
 function meepleInfoForRender() {
