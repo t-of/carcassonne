@@ -936,7 +936,7 @@ function resizeCanvas() {
   canvas.dataset.dpr = dpr;
 }
 
-// 置いたタイルと、その周り 1 マス（置ける場所）が全部入るように縮めて中央に置く
+// 置いたタイルと周りの余白が全部入るように縮めて中央に置く
 function fitView() {
   const canvas = els.board;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -944,7 +944,7 @@ function fitView() {
     const [x, y] = key.split(',').map(Number);
     x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
   }
-  x0--; y0--; x1++; y1++;
+  x0--; x1++; y0 -= 2; y1 += 2; // 横は周り 1 マス、縦は上下 2 マスずつ余白
   const w = x1 - x0 + 1, h = y1 - y0 + 1;
   const dpr = Number(canvas.dataset.dpr || 1);
   view.scale = Math.min(canvas.width / w, canvas.height / h, 96 * dpr);
