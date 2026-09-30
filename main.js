@@ -836,13 +836,22 @@ function drawTileArt(ctx, kindIndex, rot, px, py, size, opts = {}) {
       ctx.fillStyle = PLAYER_COLORS[m.player];
       ctx.strokeStyle = 'rgba(0,0,0,0.4)';
       ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(m.anchor[0] * size, m.anchor[1] * size, size * 0.11, 0, Math.PI * 2);
+      hexPath(ctx, m.anchor[0] * size, m.anchor[1] * size, size * 0.12);
       ctx.fill();
       ctx.stroke();
     }
   }
   ctx.restore();
+}
+
+// 駒の形: 上と下に頂点が来る六角形
+function hexPath(ctx, x, y, r) {
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = Math.PI / 2 + (i * Math.PI) / 3;
+    ctx.lineTo(x + r * Math.cos(a), y + r * Math.sin(a));
+  }
+  ctx.closePath();
 }
 
 function drawPreview() {
@@ -937,11 +946,9 @@ function drawBoard() {
     const px = view.ox + x * size, py = view.oy + y * size;
     ctx.fillStyle = PLAYER_COLORS[game.currentPlayer];
     for (const opt of options) {
-      ctx.globalAlpha = 0.55;
       ctx.beginPath();
-      ctx.arc(px + opt.anchor[0] * size, py + opt.anchor[1] * size, size * 0.13, 0, Math.PI * 2);
+      ctx.arc(px + opt.anchor[0] * size, py + opt.anchor[1] * size, Math.max(3, size * 0.04), 0, Math.PI * 2);
       ctx.fill();
-      ctx.globalAlpha = 1;
     }
   }
 }
