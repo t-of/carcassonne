@@ -55,25 +55,28 @@
 
       <!-- 対局画面 -->
       <div id="game" class="game" hidden>
-        <div class="scoreboard" id="scoreboard"></div>
         <canvas id="board"></canvas>
-        <div class="hud">
-          <div class="hud__tile">
-            <span class="hud__label">置くタイル</span>
-            <canvas id="previewCanvas" width="240" height="240"></canvas>
-            <button class="pill" id="rotateBtn">回す ⟳</button>
+        <aside class="side">
+          <div class="side__score">
+            <div class="scoreboard" id="scoreboard"></div>
+            <canvas id="track" class="track" aria-label="得点ボード"></canvas>
           </div>
-          <div class="hud__info">
-            <p id="message" class="message">タイルを引きました</p>
-            <p class="deckcount">山札 残り <span id="deckCount">0</span> 枚</p>
-            <div class="hud__buttons">
-              <button class="pill pill--accent" id="placeBtn" hidden>ここに置く</button>
-              <button class="pill" id="skipBtn" hidden>駒を置かない</button>
-              <button class="pill" id="listBtn">タイル一覧</button>
+          <div class="side__tile">
+            <div class="hud__tile">
+              <canvas id="previewCanvas" width="240" height="240" aria-label="置くタイル"></canvas>
+              <button class="pill" id="rotateBtn">回す ⟳</button>
+            </div>
+            <div class="hud__info">
+              <p id="message" class="message">タイルを引きました</p>
+              <p class="deckcount">山札 残り <span id="deckCount">0</span> 枚</p>
+              <div class="hud__buttons">
+                <button class="pill pill--accent" id="placeBtn" hidden>ここに置く</button>
+                <button class="pill" id="skipBtn" hidden>駒を置かない</button>
+                <button class="pill" id="listBtn">タイル一覧</button>
+              </div>
             </div>
           </div>
-          <canvas id="track" class="track" width="900" height="300" aria-label="得点ボード"></canvas>
-        </div>
+        </aside>
       </div>
 
       <!-- 結果画面 -->

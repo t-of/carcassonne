@@ -79,51 +79,58 @@ button { font: inherit; color: inherit; }
 }
 .pill--accent { background: var(--accent); color: #241c10; border-color: var(--accent); font-weight: bold; }
 
-/* ---- 対局画面 ---- */
+/* ---- 対局画面: 左 2/3 が盤、右 1/3 の上 2/3 が点数、下 1/3 が置くタイル ---- */
 .game {
   flex: 1;
-  display: flex;
-  flex-direction: column;
   min-height: 0;
+  display: grid;
+  grid-template-columns: 2fr 1fr;
   gap: 8px;
 }
-.scoreboard {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-.player-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  font-size: 12px;
-  white-space: nowrap;
-  flex: none;
-}
-.player-chip.active { outline: 2px solid var(--accent); }
 #board {
-  flex: 1 1 0;
-  min-height: 0;
   width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
   border-radius: 12px;
   background: #efe9da;
   touch-action: manipulation;
 }
-.hud {
+.side {
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 2fr 1fr;
+  gap: 8px;
+}
+.side__score { min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.scoreboard { display: flex; flex-wrap: wrap; gap: 4px; }
+.player-chip {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
+  padding: 2px 8px 2px 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+  white-space: nowrap;
 }
-.hud__tile { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: none; }
-.hud__label { font-size: 11px; color: var(--muted); }
-.hud__tile canvas { width: 104px; height: 104px; border-radius: 6px; background: #fff; border: 1px solid rgba(255, 255, 255, 0.2); }
-.hud__info { flex: 1; min-width: 0; }
-.message { margin: 0; font-size: 13px; }
+.player-chip.active { outline: 2px solid var(--accent); }
+.track { flex: 1 1 0; min-height: 0; width: 100%; border-radius: 6px; background: #fbf8ef; }
+.side__tile {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 8px;
+}
+.hud__tile { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.hud__tile canvas { width: 88px; height: 88px; border-radius: 6px; background: #fff; border: 1px solid rgba(255, 255, 255, 0.2); }
+.hud__info { flex: 1 1 120px; min-width: 0; }
+.message { margin: 0; font-size: 12px; }
 .deckcount { margin: 2px 0 0; font-size: 11px; color: var(--muted); }
+.hud__buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 
 /* ---- 結果画面 ---- */
 .ranking { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 320px; }
@@ -148,7 +155,13 @@ button { font: inherit; color: inherit; }
 .tile-list__item.empty { opacity: 0.35; }
 
 /* ---- 得点ボードと駒の残り ---- */
-.hud__buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.hud { flex-wrap: wrap; }
-.track { flex: none; width: 100%; max-width: 720px; margin: 0 auto; height: auto; border-radius: 6px; background: #fbf8ef; }
 .player-chip__hexes { width: 22px; height: 22px; flex: none; }
+
+/* 狭い画面では右の列が細いので、置くタイルとボタンを小さくする */
+@media (max-width: 480px) {
+  .hud__tile canvas { width: 64px; height: 64px; }
+  .side__tile .pill { padding: 4px 10px; font-size: 12px; }
+  .message { font-size: 11px; }
+  .player-chip { font-size: 11px; padding: 1px 6px 1px 2px; }
+  .player-chip__hexes { width: 18px; height: 18px; }
+}

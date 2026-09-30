@@ -839,17 +839,20 @@ const TRACK_PATH = (() => {
   for (let c = TRACK_COLS - 1; c >= 1; c--) path.push([c, 0]);
   return [path[0], ...path.slice(1).reverse()]; // 上の組み立ては逆回りなので、0 を残して向きを反対にする
 })();
-const trackCell = (n) => TRACK_PATH[n];
 function drawTrack() {
   const c = els.track, ctx = c.getContext('2d');
   const W = c.width, H = c.height;
-  const cw = W / TRACK_COLS, chh = H / TRACK_ROWS;
+  // 縦長の枠では 5 列 × 10 段に向きを変える（行と列を入れ替えても輪のまま）
+  const tall = H > W;
+  const cols = tall ? TRACK_ROWS : TRACK_COLS, rows = tall ? TRACK_COLS : TRACK_ROWS;
+  const trackCell = (n) => (tall ? [TRACK_PATH[n][1], TRACK_PATH[n][0]] : TRACK_PATH[n]);
+  const cw = W / cols, chh = H / rows;
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = '#fbf8ef';
   ctx.fillRect(0, 0, W, H);
   ctx.strokeStyle = 'rgba(0,0,0,0.15)';
   ctx.lineWidth = 1;
-  ctx.font = `${Math.round(chh * 0.34)}px system-ui, sans-serif`;
+  ctx.font = `${Math.round(Math.min(cw, chh) * 0.34)}px system-ui, sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   for (let n = 0; n < 50; n++) {
@@ -860,9 +863,9 @@ function drawTrack() {
   }
   // 道順が分かるように、マスの中心を順に結ぶ薄い線
   ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-  ctx.lineWidth = Math.max(2, chh * 0.06);
+  ctx.lineWidth = Math.max(2, Math.min(cw, chh) * 0.06);
   ctx.beginPath();
-  TRACK_PATH.forEach(([cx, cy]) => ctx.lineTo(cx * cw + cw / 2, cy * chh + chh / 2));
+  TRACK_PATH.forEach((_, n) => { const [cx, cy] = trackCell(n); ctx.lineTo(cx * cw + cw / 2, cy * chh + chh / 2); });
   ctx.closePath();
   ctx.stroke();
   ctx.lineWidth = 1;
@@ -1030,12 +1033,13 @@ function drawPreview() {
 }
 
 function resizeCanvas() {
-  const canvas = els.board;
-  const rect = canvas.getBoundingClientRect();
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.max(1, Math.round(rect.width * dpr));
-  canvas.height = Math.max(1, Math.round(rect.height * dpr));
-  canvas.dataset.dpr = dpr;
+  for (const canvas of [els.board, els.track]) {
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.max(1, Math.round(rect.width * dpr));
+    canvas.height = Math.max(1, Math.round(rect.height * dpr));
+    canvas.dataset.dpr = dpr;
+  }
 }
 
 // 置いたタイルと周りの余白が全部入るように縮めて中央に置く
@@ -1257,7 +1261,7 @@ els.playercount.addEventListener('click', (e) => {
   if (!btn) return;
   startNewGame(Number(btn.dataset.n));
 });
-window.addEventListener('resize', () => { if (!els.game.hidden) { resizeCanvas(); drawBoard(); } });
+window.addEventListener('resize', () => { if (!els.game.hidden) { resizeCanvas(); drawTrack(); drawBoard(); } });
 
 // ---- 起動時：保存があれば「つづきから」を出す ----
 (function boot() {
