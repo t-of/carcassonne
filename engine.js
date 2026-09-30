@@ -562,7 +562,8 @@ export class Game {
         this.events.push({ type, finished, players: winners, points, tiles, ...extra, detail });
       }
     }
-    // 駒は持ち主に返す
+    // 完成したときだけ駒を持ち主に返す（最後の採点では盤面に残す）
+    if (!finished) return;
     for (const m of meta.meeples) this.players[m.player].meeples++;
     meta.meeples = [];
   }
