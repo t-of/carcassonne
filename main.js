@@ -441,11 +441,18 @@ function drawTileArt(ctx, kindIndex, rot, px, py, size, opts = {}) {
   kind.cityGroups.forEach((g) => {
     if (!g.pennant) return;
     const abs = g.edges.map((li) => (li + rot) % 4);
-    // 都市の隅（となりの辺も同じ都市ならその角）に置く
-    const d = abs[0];
-    const [cx, cy] = EDGE_CORNERS[d][abs.includes((d + 1) % 4) ? 1 : 0];
     const r = size * 0.07;
-    const ax = cx ? size - r : r, ay = cy ? size - r : r;
+    // となりの 2 辺が同じ都市ならその角に。そうでない都市（向かい合う 2 辺など）は角が草原との境になり円が切れるので、
+    // 最初の辺の三角の中（辺の中点から中心へ寄せた所）に置く。この都市の駒はもう片方の三角に立つ
+    const d = abs.find((e) => abs.includes((e + 1) % 4));
+    let ax, ay;
+    if (d != null) {
+      const [cx, cy] = EDGE_CORNERS[d][1], k = r * 1.5;
+      ax = cx ? size - k : k; ay = cy ? size - k : k;
+    } else {
+      const [mx, my] = EDGE_MID[abs[0]];
+      ax = (mx + (0.5 - mx) * 0.36) * size; ay = (my + (0.5 - my) * 0.36) * size;
+    }
     ctx.beginPath();
     ctx.arc(ax, ay, r, 0, Math.PI * 2);
     ctx.fill();
