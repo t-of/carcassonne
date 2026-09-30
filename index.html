@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2c2620">
+  <meta name="description" content="カルカソンヌ基本セットを1台で交代して遊ぶ試作">
+  <title>carcassonne — 身内で交代して遊ぶタイル配置</title>
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="carcassonne">
+  <meta property="og:title" content="carcassonne — 身内で交代して遊ぶタイル配置">
+  <meta property="og:description" content="カルカソンヌ基本セットを1台で交代して遊ぶ試作">
+  <meta property="og:url" content="https://t-of.github.io/carcassonne/">
+  <meta property="og:image" content="https://t-of.github.io/carcassonne/icons/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:locale" content="ja_JP">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <!-- apple-mobile-web-app-status-bar-style は付けない（black-translucent だと iOS 26 で上部が隠れる） -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="carcassonne">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+
+  <link rel="stylesheet" href="./webapp-kit/webapp-kit.css">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main class="app">
+    <header class="bar">
+      <h1 class="bar__title">carcassonne</h1>
+      <div class="bar__actions">
+        <button class="pill" data-wak="install" hidden>アプリにする</button>
+        <button class="pill" data-wak="share">共有</button>
+      </div>
+    </header>
+
+    <section class="stage" id="stage">
+      <!-- 人数選び -->
+      <div id="setup" class="panel">
+        <p class="panel__lead">人数を選んでください</p>
+        <div class="playercount" id="playercount">
+          <button data-n="2">2人</button>
+          <button data-n="3">3人</button>
+          <button data-n="4">4人</button>
+          <button data-n="5">5人</button>
+        </div>
+        <button class="pill pill--accent" id="continueBtn" hidden>つづきから</button>
+      </div>
+
+      <!-- 対局画面 -->
+      <div id="game" class="game" hidden>
+        <div class="scoreboard" id="scoreboard"></div>
+        <canvas id="board"></canvas>
+        <div class="hud">
+          <div class="hud__tile">
+            <canvas id="previewCanvas" width="96" height="96"></canvas>
+            <button class="pill" id="rotateBtn">回す ⟳</button>
+          </div>
+          <div class="hud__info">
+            <p id="message" class="message">タイルを引きました</p>
+            <p class="deckcount">山札 残り <span id="deckCount">0</span> 枚</p>
+          </div>
+          <button class="pill" id="skipBtn" hidden>駒を置かない</button>
+        </div>
+      </div>
+
+      <!-- 結果画面 -->
+      <div id="result" class="panel" hidden>
+        <p class="panel__lead">結果</p>
+        <ol id="ranking" class="ranking"></ol>
+        <button class="pill pill--accent" id="restartBtn">もう一度遊ぶ</button>
+      </div>
+    </section>
+
+    <footer class="credit">
+      <a href="/">T.OF...</a> のアプリ・<a href="https://t-of.github.io/contact/">問い合わせ</a>
+    </footer>
+  </main>
+
+  <script src="./webapp-kit/webapp-kit.js"></script>
+  <script src="./main.js"></script>
+</body>
+</html>

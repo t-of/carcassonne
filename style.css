@@ -1,0 +1,134 @@
+:root {
+  --bg: #2c2620;
+  --fg: #eceef3;
+  --muted: #9aa0ab;
+  --accent: #ffd35c;
+}
+
+* { box-sizing: border-box; }
+
+/* Safari 26 の上下バーの色は html の背景から取られる。body と同じ色にしておく */
+html { background-color: var(--bg); -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+button { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+
+/* 画面の端に置くものはセーフエリアの分だけ内側に。高さは 100vh ではなく 100dvh */
+.app {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding:
+    max(12px, env(safe-area-inset-top))
+    max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
+}
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bar__title { margin: 0; font-size: 18px; }
+.bar__actions { display: flex; gap: 8px; }
+.pill {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  touch-action: manipulation;   /* ダブルタップ拡大を止める */
+  user-select: none;
+  -webkit-user-select: none;
+}
+.credit { text-align: center; font-size: 12px; color: var(--muted); }
+.credit a { color: inherit; }
+
+/* 全画面のオーバーレイは opacity ではなく display: none で隠す */
+
+/* ---- 人数選び ---- */
+.panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  text-align: center;
+}
+.panel__lead { font-size: 16px; color: var(--muted); margin: 0; }
+.playercount { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.playercount button {
+  font: inherit; color: inherit; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 14px 20px;
+  font-size: 16px;
+  min-width: 64px;
+}
+.pill--accent { background: var(--accent); color: #241c10; border-color: var(--accent); font-weight: bold; }
+
+/* ---- 対局画面 ---- */
+.game {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 8px;
+}
+.scoreboard {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.player-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+  white-space: nowrap;
+  flex: none;
+}
+.player-chip.active { outline: 2px solid var(--accent); }
+.player-chip__dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+#board {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border-radius: 12px;
+  background: #efe9da;
+  touch-action: none; /* ドラッグ・ピンチは自前で処理する */
+}
+.hud {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hud__tile { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: none; }
+.hud__tile canvas { border-radius: 6px; background: #fff; border: 1px solid rgba(255, 255, 255, 0.2); }
+.hud__info { flex: 1; min-width: 0; }
+.message { margin: 0; font-size: 13px; }
+.deckcount { margin: 2px 0 0; font-size: 11px; color: var(--muted); }
+
+/* ---- 結果画面 ---- */
+.ranking { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 320px; }
+.ranking li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.06);
+}
+.ranking .rank-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.ranking .rank-score { margin-left: auto; font-weight: bold; }
