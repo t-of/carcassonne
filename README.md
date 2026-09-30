@@ -25,6 +25,13 @@
 
 途中の状態は端末に自動で保存され、リロードすると「つづきから」で再開できる。
 
+## 見た目
+
+右上の「見た目」で、シンプル（線と面だけ）とドット絵（RPG 風）を切り替えられる。選んだほうは端末に保存される。
+ドット絵のタイルは `pixel-tiles.js` が、タイルの辺（都市・道・草原）と向きから 32×32 ドットで組み立てる。
+
+素材: ドット絵のときの文字は [DotGothic16](https://fonts.google.com/specimen/DotGothic16)（Fontworks、SIL Open Font License 1.1）を Google Fonts から読み込む。
+
 ## アプリとして入れる（PWA）
 
 - iPhone / iPad: Safari で開き、共有 → 「ホーム画面に追加」

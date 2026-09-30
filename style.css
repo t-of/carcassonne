@@ -169,3 +169,50 @@ button { font: inherit; color: inherit; }
   .player-chip { font-size: 11px; padding: 1px 6px 1px 2px; }
   .player-chip__hexes { width: 18px; height: 18px; }
 }
+
+/* ---- 見た目「ドット絵」: RPG の窓のような枠、ドット文字、角ばったボタン ---- */
+[data-theme="pixel"] {
+  --bg: #14162b;
+  --fg: #f4f0e0;
+  --muted: #9aa0c0;
+  --accent: #f2d45c;
+  --panel: #1e2244;
+  --ink: #2a2018;
+}
+[data-theme="pixel"] body { font-family: 'DotGothic16', monospace; }
+[data-theme="pixel"] canvas { image-rendering: pixelated; }
+[data-theme="pixel"] .bar__title { font-weight: 400; letter-spacing: 2px; color: var(--accent); }
+/* 窓: 白い二重枠 */
+[data-theme="pixel"] .pill,
+[data-theme="pixel"] .playercount button,
+[data-theme="pixel"] .player-chip,
+[data-theme="pixel"] .ranking li,
+[data-theme="pixel"] .tile-list {
+  border: 2px solid var(--fg);
+  border-radius: 4px;
+  background: var(--panel);
+  box-shadow: inset 0 0 0 2px #2a2e55, 0 3px 0 #0a0b18;
+}
+[data-theme="pixel"] .pill { padding: 5px 12px; }
+[data-theme="pixel"] .pill:active,
+[data-theme="pixel"] .playercount button:active { transform: translateY(2px); box-shadow: inset 0 0 0 2px #2a2e55, 0 1px 0 #0a0b18; }
+[data-theme="pixel"] .pill--accent { background: var(--accent); color: var(--ink); border-color: var(--fg); font-weight: 400; box-shadow: inset 0 0 0 2px #c79a28, 0 3px 0 #0a0b18; }
+[data-theme="pixel"] .playercount button { padding: 14px 22px; }
+[data-theme="pixel"] .panel__lead { color: var(--fg); font-size: 18px; letter-spacing: 1px; }
+[data-theme="pixel"] #board { border-radius: 4px; background: #1b1f3a; outline: 2px solid var(--fg); outline-offset: -2px; }
+[data-theme="pixel"] .track { border-radius: 4px; background: var(--panel); outline: 2px solid var(--fg); outline-offset: -2px; }
+[data-theme="pixel"] .hud__tile canvas { border-radius: 4px; background: var(--panel); border: 2px solid var(--fg); }
+[data-theme="pixel"] .player-chip { padding: 2px 8px 2px 4px; box-shadow: inset 0 0 0 2px #2a2e55; }
+[data-theme="pixel"] .player-chip.active { outline: none; border-color: var(--accent); box-shadow: inset 0 0 0 2px #2a2e55, 0 0 0 2px var(--accent); }
+[data-theme="pixel"] .player-chip.active::before { content: '▶'; color: var(--accent); font-size: 10px; }
+.player-chip__meeple { width: 18px; height: 18px; flex: none; }
+[data-theme="pixel"] .message { font-size: 13px; line-height: 1.5; }
+[data-theme="pixel"] .ranking .rank-dot { border-radius: 0; box-shadow: 0 0 0 2px var(--ink); }
+[data-theme="pixel"] .ranking .rank-score { font-weight: 400; color: var(--accent); }
+[data-theme="pixel"] .tile-list { padding: 16px; }
+[data-theme="pixel"] .tile-list::backdrop { background: rgba(10, 11, 24, 0.75); }
+[data-theme="pixel"] .credit { color: var(--muted); }
+@media (max-width: 480px) {
+  [data-theme="pixel"] .message { font-size: 11px; }
+  .player-chip__meeple { width: 14px; height: 14px; }
+}

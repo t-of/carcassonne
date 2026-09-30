@@ -725,12 +725,98 @@ const els = {
   result: document.getElementById('result'),
   ranking: document.getElementById('ranking'),
   restartBtn: document.getElementById('restartBtn'),
+  themeBtn: document.getElementById('themeBtn'),
 };
 
 let game = null;
 let previewRot = 0;
 let ghost = null; // 仮に置いたマス { x, y }。決定するまで向きを変えられる
 let view = { scale: 64, ox: 0, oy: 0 }; // scale = 1 タイルぶんの画面ピクセル数
+
+// ---- 見た目: 'simple'（線と面だけ）/ 'pixel'（RPG 風のドット絵。絵は pixel-tiles.js） ----
+let theme = load('theme', 'simple') === 'pixel' ? 'pixel' : 'simple';
+const PIXEL_FONT = "'DotGothic16', monospace";
+const PX = { bg: '#1b1f3a', panel: '#1e2244', line: '#f4f0e0', gold: '#f2d45c', ink: '#2a2018', muted: '#9aa0c0' };
+function applyTheme() {
+  document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]').content = theme === 'pixel' ? '#14162b' : '#2c2620';
+  els.themeBtn.textContent = theme === 'pixel' ? '見た目: ドット絵' : '見た目: シンプル';
+}
+function redrawAll() { if (game && !els.game.hidden) renderAll(); }
+els.themeBtn.addEventListener('click', () => {
+  theme = theme === 'pixel' ? 'simple' : 'pixel';
+  save('theme', theme);
+  applyTheme();
+  redrawAll();
+});
+applyTheme();
+// ドット文字が読み込まれたら、キャンバスの文字を描き直す
+if (document.fonts) document.fonts.load(`16px ${PIXEL_FONT}`).then(redrawAll, () => {});
+
+// タイルの絵は種類 × 向きごとに 32×32 のキャンバスへ 1 回だけ描いておく
+const PIXEL_TILES = new Map();
+function pixelTileCanvas(kindIndex, rot) {
+  const key = kindIndex * 4 + rot;
+  if (PIXEL_TILES.has(key)) return PIXEL_TILES.get(key);
+  const { N, PALETTE, build } = window.PixelTiles;
+  const px = build(TILE_KINDS[kindIndex], rot, key);
+  const c = document.createElement('canvas');
+  c.width = c.height = N;
+  const cx = c.getContext('2d'), img = cx.createImageData(N, N);
+  const rgb = PALETTE.map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
+  px.forEach((v, i) => { img.data.set([...rgb[v], 255], i * 4); });
+  cx.putImageData(img, 0, 0);
+  PIXEL_TILES.set(key, c);
+  return c;
+}
+
+// ドット絵の駒（人の形）。L 明るい色 C 色 D 暗い色 O ふち
+const MEEPLE_SPRITE = [
+  '...OOO...',
+  '..OLCCO..',
+  '..OCCDO..',
+  '.OOCCCOO.',
+  'OLCCCCCDO',
+  'OCCCCCCDO',
+  '.OOCCCOO.',
+  '.OCDOCDO.',
+  '.OOO.OOO.',
+];
+function shade(hex, t) { // t > 0 で白へ、t < 0 で黒へ寄せる
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const to = t > 0 ? 255 : 0, k = Math.abs(t);
+  return `rgb(${c.map((v) => Math.round(v + (to - v) * k)).join(',')})`;
+}
+function meepleColors(color) { return { O: PX.ink, L: shade(color, 0.45), C: color, D: shade(color, -0.35) }; }
+// (x, y) を中心に、高さ h の駒を描く
+function drawPixelMeeple(ctx, x, y, h, color) {
+  const cols = meepleColors(color), cell = h / 9, x0 = x - 4.5 * cell, y0 = y - 4.5 * cell;
+  MEEPLE_SPRITE.forEach((row, r) => [...row].forEach((ch, c) => {
+    if (ch === '.') return;
+    ctx.fillStyle = cols[ch];
+    const ax = Math.round(x0 + c * cell), ay = Math.round(y0 + r * cell);
+    ctx.fillRect(ax, ay, Math.round(x0 + (c + 1) * cell) - ax, Math.round(y0 + (r + 1) * cell) - ay);
+  }));
+}
+// 得点の欄の小さい駒（SVG）
+function meepleIcon(color, label) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 9 9');
+  svg.setAttribute('class', 'player-chip__meeple');
+  svg.setAttribute('shape-rendering', 'crispEdges');
+  svg.setAttribute('aria-label', label);
+  const cols = meepleColors(color);
+  MEEPLE_SPRITE.forEach((row, r) => [...row].forEach((ch, c) => {
+    if (ch === '.') return;
+    const rect = document.createElementNS(NS, 'rect');
+    rect.setAttribute('x', c); rect.setAttribute('y', r);
+    rect.setAttribute('width', 1); rect.setAttribute('height', 1);
+    rect.setAttribute('fill', cols[ch]);
+    svg.appendChild(rect);
+  }));
+  return svg;
+}
 
 // 2: 草原の区画の決め方を直し、手の途中（駒を決める前）も保存するようにした版。1 の保存は区画の番号が合わないので続きから遊べない
 const SAVE_VERSION = 2;
@@ -870,22 +956,23 @@ function drawTrack() {
   const cols = tall ? TRACK_ROWS : TRACK_COLS, rows = tall ? TRACK_COLS : TRACK_ROWS;
   const trackCell = (n) => (tall ? [TRACK_PATH[n][1], TRACK_PATH[n][0]] : TRACK_PATH[n]);
   const cw = W / cols, chh = H / rows;
+  const pixel = theme === 'pixel';
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = '#fbf8ef';
+  ctx.fillStyle = pixel ? PX.panel : '#fbf8ef';
   ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.strokeStyle = pixel ? 'rgba(244,240,224,0.16)' : 'rgba(0,0,0,0.15)';
   ctx.lineWidth = 1;
-  ctx.font = `${Math.round(Math.min(cw, chh) * 0.34)}px system-ui, sans-serif`;
+  ctx.font = `${Math.round(Math.min(cw, chh) * 0.34)}px ${pixel ? PIXEL_FONT : 'system-ui, sans-serif'}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   for (let n = 0; n < 50; n++) {
     const [cx, cy] = trackCell(n);
     ctx.strokeRect(cx * cw + 0.5, cy * chh + 0.5, cw - 1, chh - 1);
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillStyle = pixel ? (n % 5 ? PX.muted : PX.gold) : 'rgba(0,0,0,0.45)';
     ctx.fillText(String(n), cx * cw + 3, cy * chh + 2);
   }
   // 道順が分かるように、マスの中心を順に結ぶ薄い線
-  ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+  ctx.strokeStyle = pixel ? 'rgba(242,212,92,0.22)' : 'rgba(0,0,0,0.12)';
   ctx.lineWidth = Math.max(2, Math.min(cw, chh) * 0.06);
   ctx.beginPath();
   TRACK_PATH.forEach((_, n) => { const [cx, cy] = trackCell(n); ctx.lineTo(cx * cw + cw / 2, cy * chh + chh / 2); });
@@ -901,18 +988,22 @@ function drawTrack() {
     list.forEach((i, j) => {
       const off = (j - (list.length - 1) / 2) * r * 0.5;
       const x = cx * cw + cw / 2 + off, y = cy * chh + chh / 2 + off * 0.4;
-      ctx.fillStyle = PLAYER_COLORS[i];
-      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      hexPath(ctx, x, y, r);
-      ctx.fill();
-      ctx.stroke();
+      if (pixel) drawPixelMeeple(ctx, x, y, r * 2, PLAYER_COLORS[i]);
+      else {
+        ctx.fillStyle = PLAYER_COLORS[i];
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        hexPath(ctx, x, y, r);
+        ctx.fill();
+        ctx.stroke();
+      }
       const laps = Math.floor(game.players[i].score / 50);
       if (laps) {
         ctx.fillStyle = '#fff';
-        ctx.font = `bold ${Math.round(r * 0.62)}px system-ui, sans-serif`;
+        ctx.font = `bold ${Math.round(r * 0.62)}px ${pixel ? PIXEL_FONT : 'system-ui, sans-serif'}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(`+${laps * 50}`, x, y);
+        if (pixel) { ctx.lineWidth = Math.max(2, r * 0.18); ctx.strokeStyle = PX.ink; ctx.strokeText(`+${laps * 50}`, x, y + r * 0.2); }
+        ctx.fillText(`+${laps * 50}`, x, y + (pixel ? r * 0.2 : 0));
       }
     });
   }
@@ -923,8 +1014,13 @@ function renderScoreboard() {
   game.players.forEach((p, i) => {
     const chip = document.createElement('div');
     chip.className = 'player-chip' + (i === game.currentPlayer ? ' active' : '');
-    chip.appendChild(meepleHexes(p.color, p.meeples));
-    chip.appendChild(document.createTextNode(`${p.score}点`));
+    if (theme === 'pixel') {
+      chip.appendChild(meepleIcon(p.color, `駒 残り ${p.meeples}`));
+      chip.appendChild(document.createTextNode(`×${p.meeples}　${p.score}点`));
+    } else {
+      chip.appendChild(meepleHexes(p.color, p.meeples));
+      chip.appendChild(document.createTextNode(`${p.score}点`));
+    }
     els.scoreboard.appendChild(chip);
   });
 }
@@ -948,6 +1044,14 @@ function renderAll() {
 
 // ---- タイルの絵を描く（盤面・プレビュー共通） ----
 function drawTileArt(ctx, kindIndex, rot, px, py, size, opts = {}) {
+  if (theme === 'pixel') {
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(pixelTileCanvas(kindIndex, rot), px, py, size, size);
+    for (const m of opts.meeples || []) drawPixelMeeple(ctx, px + m.anchor[0] * size, py + m.anchor[1] * size, size * 0.3, PLAYER_COLORS[m.player]);
+    ctx.restore();
+    return;
+  }
   const kind = TILE_KINDS[kindIndex];
   const info = analyzeTile(kind, rot);
   ctx.save();
@@ -1060,10 +1164,17 @@ function drawPreview() {
   if (!drawn) {
     // 伏せたタイル
     const w = els.preview.width;
-    ctx.fillStyle = '#9aa0ab';
+    const pixel = theme === 'pixel';
+    ctx.fillStyle = pixel ? '#2a2e55' : '#9aa0ab';
     ctx.fillRect(0, 0, w, w);
-    ctx.fillStyle = '#fbf8ef';
-    ctx.font = `bold ${Math.round(w * 0.4)}px system-ui, sans-serif`;
+    if (pixel) { // 裏面: 金の二重枠
+      ctx.fillStyle = PX.gold;
+      ctx.fillRect(w * 0.06, w * 0.06, w * 0.88, w * 0.88);
+      ctx.fillStyle = '#2a2e55';
+      ctx.fillRect(w * 0.1, w * 0.1, w * 0.8, w * 0.8);
+    }
+    ctx.fillStyle = pixel ? PX.gold : '#fbf8ef';
+    ctx.font = `bold ${Math.round(w * 0.4)}px ${pixel ? PIXEL_FONT : 'system-ui, sans-serif'}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('?', w / 2, w / 2);
@@ -1114,7 +1225,7 @@ function drawBoard() {
   const canvas = els.board;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#efe9da';
+  ctx.fillStyle = theme === 'pixel' ? PX.bg : '#efe9da';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   fitView();
 
@@ -1136,9 +1247,9 @@ function drawBoard() {
       .filter(([x, y]) => !seen.has(x + ',' + y) && seen.add(x + ',' + y));
     // 点線の正方形で示す
     const dpr = Number(canvas.dataset.dpr || 1);
-    ctx.strokeStyle = '#2a2a2a';
-    ctx.lineWidth = 1.5 * dpr;
-    ctx.setLineDash([4 * dpr, 3 * dpr]);
+    ctx.strokeStyle = theme === 'pixel' ? PX.gold : '#2a2a2a';
+    ctx.lineWidth = (theme === 'pixel' ? 2 : 1.5) * dpr;
+    ctx.setLineDash(theme === 'pixel' ? [4 * dpr, 4 * dpr] : [4 * dpr, 3 * dpr]);
     for (const [x, y] of cells) {
       const size = view.scale;
       const px = view.ox + x * size, py = view.oy + y * size;
@@ -1162,8 +1273,17 @@ function drawBoard() {
     const px = view.ox + x * size, py = view.oy + y * size;
     ctx.fillStyle = PLAYER_COLORS[game.currentPlayer];
     for (const opt of options) {
+      const ax = px + opt.anchor[0] * size, ay = py + opt.anchor[1] * size;
+      if (theme === 'pixel') { // ふちつきの四角い点
+        const r = Math.round(Math.max(3, size * 0.045));
+        ctx.fillStyle = PX.ink;
+        ctx.fillRect(Math.round(ax) - r - 2, Math.round(ay) - r - 2, 2 * r + 4, 2 * r + 4);
+        ctx.fillStyle = PLAYER_COLORS[game.currentPlayer];
+        ctx.fillRect(Math.round(ax) - r, Math.round(ay) - r, 2 * r, 2 * r);
+        continue;
+      }
       ctx.beginPath();
-      ctx.arc(px + opt.anchor[0] * size, py + opt.anchor[1] * size, Math.max(3, size * 0.04), 0, Math.PI * 2);
+      ctx.arc(ax, ay, Math.max(3, size * 0.04), 0, Math.PI * 2);
       ctx.fill();
     }
   }
