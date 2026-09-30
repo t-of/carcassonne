@@ -175,6 +175,28 @@ button { font: inherit; color: inherit; }
   .player-chip__hexes { width: 18px; height: 18px; }
 }
 
+/* ---- 見た目「シンプル」: 線と平らな面だけ。角丸は控えめ、線はヘアライン ---- */
+[data-theme="simple"] .pill,
+[data-theme="simple"] .playercount button,
+[data-theme="simple"] .player-chip,
+[data-theme="simple"] .ranking li,
+[data-theme="simple"] .tile-list {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+}
+[data-theme="simple"] #board,
+[data-theme="simple"] .track,
+[data-theme="simple"] .hud__tile canvas {
+  border-radius: 4px;
+}
+[data-theme="simple"] .pill--accent { border-radius: 999px; } /* 丸のままにする（人数選びの強調） */
+[data-theme="simple"] .player-chip,
+[data-theme="simple"] .message,
+[data-theme="simple"] .deckcount,
+[data-theme="simple"] .rank-score {
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---- 見た目「ドット絵」: RPG の窓のような枠、ドット文字、角ばったボタン ---- */
 [data-theme="pixel"] {
   --bg: #14162b;
