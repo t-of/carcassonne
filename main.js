@@ -829,7 +829,7 @@ function drawTrack() {
   ctx.strokeStyle = 'rgba(0,0,0,0.15)';
   ctx.lineWidth = 1;
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
-  ctx.font = `${Math.round(chh * 0.3)}px system-ui, sans-serif`;
+  ctx.font = `${Math.round(chh * 0.36)}px system-ui, sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   for (let n = 0; n < 50; n++) {

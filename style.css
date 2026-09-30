@@ -149,5 +149,6 @@ button { font: inherit; color: inherit; }
 
 /* ---- 得点ボードと駒の残り ---- */
 .hud__buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.track { flex: none; width: min(40%, 220px); height: auto; border-radius: 6px; background: #fbf8ef; }
+.hud { flex-wrap: wrap; }
+.track { flex: none; width: 100%; max-width: 720px; margin: 0 auto; height: auto; border-radius: 6px; background: #fbf8ef; }
 .player-chip__hexes { width: 22px; height: 22px; flex: none; }
