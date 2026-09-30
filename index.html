@@ -66,10 +66,13 @@
           <div class="hud__info">
             <p id="message" class="message">タイルを引きました</p>
             <p class="deckcount">山札 残り <span id="deckCount">0</span> 枚</p>
-            <button class="pill" id="listBtn">タイル一覧</button>
+            <div class="hud__buttons">
+              <button class="pill pill--accent" id="placeBtn" hidden>ここに置く</button>
+              <button class="pill" id="skipBtn" hidden>駒を置かない</button>
+              <button class="pill" id="listBtn">タイル一覧</button>
+            </div>
           </div>
-          <button class="pill pill--accent" id="placeBtn" hidden>ここに置く</button>
-          <button class="pill" id="skipBtn" hidden>駒を置かない</button>
+          <canvas id="track" class="track" width="400" height="200" aria-label="得点ボード"></canvas>
         </div>
       </div>
 

@@ -701,6 +701,7 @@ const els = {
   skipBtn: document.getElementById('skipBtn'),
   placeBtn: document.getElementById('placeBtn'),
   listBtn: document.getElementById('listBtn'),
+  track: document.getElementById('track'),
   listDialog: document.getElementById('listDialog'),
   listGrid: document.getElementById('listGrid'),
   result: document.getElementById('result'),
@@ -794,16 +795,71 @@ function showResultScreen() {
   });
 }
 
+// 残りの駒: 真ん中 1 つと周り 6 つの六角形。外側から減り、最後に真ん中が残る
+function meepleHexes(color, n) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '-11 -11 22 22');
+  svg.setAttribute('class', 'player-chip__hexes');
+  svg.setAttribute('aria-label', `駒 残り ${n}`);
+  const r = 3.6, gap = r * Math.sqrt(3) + 0.6;
+  const centers = [[0, 0], ...[0, 1, 2, 3, 4, 5].map((k) => [gap * Math.cos((k * Math.PI) / 3), gap * Math.sin((k * Math.PI) / 3)])];
+  centers.forEach(([cx, cy], k) => {
+    const pts = [0, 1, 2, 3, 4, 5].map((i) => { const a = Math.PI / 2 + (i * Math.PI) / 3; return `${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`; }).join(' ');
+    const poly = document.createElementNS(NS, 'polygon');
+    poly.setAttribute('points', pts);
+    const on = k === 0 ? n >= 1 : k <= n - 1;
+    poly.setAttribute('fill', on ? color : 'none');
+    poly.setAttribute('stroke', on ? 'none' : 'rgba(255,255,255,0.18)');
+    poly.setAttribute('stroke-width', '0.6');
+    svg.appendChild(poly);
+  });
+  return svg;
+}
+
+// 得点ボード: 0〜49 のマスを 10 列 × 5 段に蛇行して並べ、駒を点数のマスに置く（50 点ごとに一周）
+function drawTrack() {
+  const c = els.track, ctx = c.getContext('2d');
+  const W = c.width, H = c.height, cols = 10, rows = 5;
+  const cw = W / cols, chh = H / rows;
+  const cellOf = (n) => { const r = Math.floor(n / cols), k = n % cols; return [r % 2 ? cols - 1 - k : k, r]; };
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#fbf8ef';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.lineWidth = 1;
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.font = `${Math.round(chh * 0.3)}px system-ui, sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  for (let n = 0; n < 50; n++) {
+    const [cx, cy] = cellOf(n);
+    ctx.strokeRect(cx * cw + 0.5, cy * chh + 0.5, cw - 1, chh - 1);
+    ctx.fillText(String(n), cx * cw + 3, cy * chh + 2);
+  }
+  // 同じマスに何人かいるときは少しずつずらす
+  const byCell = new Map();
+  game.players.forEach((p, i) => { const k = p.score % 50; if (!byCell.has(k)) byCell.set(k, []); byCell.get(k).push(i); });
+  for (const [k, list] of byCell) {
+    const [cx, cy] = cellOf(k);
+    list.forEach((i, j) => {
+      const off = (j - (list.length - 1) / 2) * cw * 0.16;
+      ctx.fillStyle = PLAYER_COLORS[i];
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      hexPath(ctx, cx * cw + cw * 0.55 + off, cy * chh + chh * 0.6 + off * 0.3, Math.min(cw, chh) * 0.26);
+      ctx.fill();
+      ctx.stroke();
+    });
+  }
+}
+
 function renderScoreboard() {
   els.scoreboard.innerHTML = '';
   game.players.forEach((p, i) => {
     const chip = document.createElement('div');
     chip.className = 'player-chip' + (i === game.currentPlayer ? ' active' : '');
-    const dot = document.createElement('span');
-    dot.className = 'player-chip__dot';
-    dot.style.background = p.color;
-    chip.appendChild(dot);
-    chip.appendChild(document.createTextNode(`${p.score}点・駒${p.meeples}`));
+    chip.appendChild(meepleHexes(p.color, p.meeples));
+    chip.appendChild(document.createTextNode(`${p.score}点`));
     els.scoreboard.appendChild(chip);
   });
 }
@@ -816,6 +872,7 @@ function renderAll() {
   els.skipBtn.hidden = !game.pendingOptions;
   els.placeBtn.hidden = !ghost;
   drawPreview();
+  drawTrack();
   drawBoard();
 }
 
