@@ -4,6 +4,8 @@
 import {
   EDGE_MID, EDGE_CORNERS, DSU, tileKey, TILE_KINDS, PLAYER_COLORS, Game, setCurvedRoads,
 } from './engine.js';
+// CPU の相手（学習の自己対局と同じ greedyBot）。ai/bots.js は Node からも import される、共通の 1 か所。
+import { greedyBot } from './ai/bots.js';
 
 // localStorage はほかのアプリと共有される（同じ t-of.github.io のため）。
 // キーは必ず 'carcassonne.' で始める。
@@ -59,6 +61,8 @@ const soundScore = () => beep(700, 0.2);
 const els = {
   setup: document.getElementById('setup'),
   playercount: document.getElementById('playercount'),
+  roles: document.getElementById('roles'),
+  startBtn: document.getElementById('startBtn'),
   continueBtn: document.getElementById('continueBtn'),
   game: document.getElementById('game'),
   scoreboard: document.getElementById('scoreboard'),
@@ -80,12 +84,65 @@ const els = {
   ranking: document.getElementById('ranking'),
   restartBtn: document.getElementById('restartBtn'),
   themeBtn: document.getElementById('themeBtn'),
+  spectateBar: document.getElementById('spectateBar'),
+  pauseBtn: document.getElementById('pauseBtn'),
+  backToSetupBtn: document.getElementById('backToSetupBtn'),
 };
 
 let game = null;
 let previewRot = 0;
 let ghost = null; // 仮に置いたマス { x, y }。決定するまで向きを変えられる
 let view = { scale: 64, ox: 0, oy: 0 }; // scale = 1 タイルぶんの画面ピクセル数
+
+// ---- CPU（席ごとに 'human' | 'cpu'。既定は全員 human） ----
+let gameRoles = [];
+function normalizeRoles(saved, n) {
+  return Array.from({ length: n }, (_, i) => (saved[i] === 'cpu' ? 'cpu' : 'human'));
+}
+const isCpu = (i) => gameRoles[i] === 'cpu';
+const isCpuTurn = () => !!game && isCpu(game.currentPlayer);
+const isSpectating = () => !!game && gameRoles.slice(0, game.playerCount).every((r) => r === 'cpu');
+// CPU の手を決める関数はここ 1 か所だけ（あとで「弱い・普通・強い」を足すときも、ここを分けるだけでよい）。
+function pickCpuMove(g) { return greedyBot(g); }
+
+const SPEED_MS = { slow: 1400, normal: 700, fast: 250 };
+let spectateSpeed = load('spectateSpeed', 'normal');
+if (!SPEED_MS[spectateSpeed]) spectateSpeed = 'normal';
+let spectatePaused = false;
+let cpuTimer = null;
+function clearCpuTimer() { if (cpuTimer != null) { clearTimeout(cpuTimer); cpuTimer = null; } }
+function cpuDelay() { return SPEED_MS[spectateSpeed] || SPEED_MS.normal; }
+
+function scheduleCpuTurn() {
+  clearCpuTimer();
+  if (!game || game.gameOver || !game.pendingTile || !isCpu(game.currentPlayer)) return;
+  if (isSpectating() && spectatePaused) return;
+  cpuTimer = setTimeout(runCpuTurn, cpuDelay());
+}
+
+// CPU の 1 手を、人が操作したときと同じ画面の流れ（ghost → commitPlacement → commitMeeple/skipMeeple）で進める。
+// こうすると「タイルを置いた場所」「置いた駒」が、既にある描き方でそのまま見える。
+function runCpuTurn() {
+  cpuTimer = null;
+  if (!game || game.gameOver || !game.pendingTile || !isCpu(game.currentPlayer)) return;
+  if (!drawn) { drawn = true; game.message = MSG_PLACE; soundPlace(); }
+  const move = pickCpuMove(game);
+  if (!move) return; // 置ける手がないことは起きないはずだが、念のため
+  ghost = { x: move.x, y: move.y };
+  previewRot = move.rot;
+  renderAll();
+  cpuTimer = setTimeout(() => {
+    cpuTimer = null;
+    commitPlacement(move.x, move.y, move.rot);
+    if (game.pendingOptions) {
+      cpuTimer = setTimeout(() => {
+        cpuTimer = null;
+        const opt = move.meepleKey != null ? game.pendingOptions.options.find((o) => o.key === move.meepleKey) : null;
+        if (opt) commitMeeple(move.x, move.y, opt); else skipMeeple();
+      }, cpuDelay());
+    }
+  }, cpuDelay());
+}
 
 // ---- 見た目: 'simple'（線と面だけ）/ 'pixel'（RPG 風のドット絵。絵は pixel-tiles.js） ----
 let theme = load('theme', 'simple') === 'pixel' ? 'pixel' : 'simple';
@@ -182,7 +239,7 @@ const SAVE_VERSION = 2;
 function serializeGame(g) {
   return { v: SAVE_VERSION, playerCount: g.playerCount, deckOrder: g.deckOrder, log: g.log };
 }
-function saveGame() { if (game) save('game', serializeGame(game)); }
+function saveGame() { if (game) { save('game', serializeGame(game)); save('roles', gameRoles); } }
 
 // 保存データは「山札の並び」と「これまでの手」だけ。山札を同じ並びで引き直しながら
 // 同じ手を再現すれば、盤面・得点・つながりはすべて元どおりに計算し直せる。
@@ -236,8 +293,9 @@ function rebuildFromSave(data) {
   return g;
 }
 
-function startNewGame(playerCount) {
+function startNewGame(playerCount, roles) {
   game = new Game(playerCount);
+  gameRoles = normalizeRoles(roles || [], playerCount);
   previewRot = game.pendingTile ? game.pendingTile.rot : 0;
   drawn = false;
   notice = '';
@@ -245,6 +303,7 @@ function startNewGame(playerCount) {
   saveGame();
   showGameScreen();
   renderAll();
+  scheduleCpuTurn();
 }
 
 function showGameScreen() {
@@ -395,11 +454,19 @@ function renderAll() {
   els.message.textContent = game.message;
   els.notice.textContent = notice;
   els.notice.hidden = !notice;
-  els.skipBtn.hidden = !game.pendingOptions;
-  els.placeBtn.hidden = !ghost;
-  els.drawBtn.hidden = !(game.pendingTile && !drawn);
-  els.rotateBtn.disabled = !drawn || !!game.pendingOptions;
+  const cpuTurn = isCpuTurn();
+  els.skipBtn.hidden = !game.pendingOptions || cpuTurn;
+  els.placeBtn.hidden = !ghost || cpuTurn;
+  els.drawBtn.hidden = !(game.pendingTile && !drawn) || cpuTurn;
+  els.rotateBtn.disabled = !drawn || !!game.pendingOptions || cpuTurn;
   els.undoBtn.disabled = !ghost && !game.log.length;
+  els.spectateBar.hidden = !isSpectating();
+  if (isSpectating()) {
+    els.pauseBtn.textContent = spectatePaused ? '再開' : '一時停止';
+    for (const btn of els.spectateBar.querySelectorAll('button[data-speed]')) {
+      btn.setAttribute('aria-pressed', String(btn.dataset.speed === spectateSpeed));
+    }
+  }
   drawPreview();
   drawTrack();
   drawBoard();
@@ -693,7 +760,7 @@ function drawBoard() {
 
 // ---- 入力（盤は自動で全体が入るので、タップだけ） ----
 els.board.addEventListener('click', (e) => {
-  if (!game) return;
+  if (!game || isCpuTurn()) return;
   const rect = els.board.getBoundingClientRect();
   const dpr = Number(els.board.dataset.dpr || 1);
   handleTap((e.clientX - rect.left) * dpr, (e.clientY - rect.top) * dpr);
@@ -805,12 +872,14 @@ function finishTurn() {
   game.message = MSG_DRAW;
   saveGame();
   renderAll();
+  scheduleCpuTurn();
 }
 
 // 戻る: 仮置きを消す → 置いたタイルを手に戻す → 前の人の駒を決める前に戻す、の順に 1 段ずつ
 function undo() {
   if (!game || game.gameOver) return;
-  if (ghost) { ghost = null; renderAll(); return; }
+  clearCpuTimer(); // CPU が手を進めている途中でも、まずそこで止める
+  if (ghost) { ghost = null; renderAll(); scheduleCpuTurn(); return; }
   const log = game.log.map((e) => ({ ...e }));
   if (!log.length) return;
   const last = log[log.length - 1];
@@ -823,17 +892,19 @@ function undo() {
   notice = '';
   saveGame();
   renderAll();
+  scheduleCpuTurn();
 }
 
-els.rotateBtn.addEventListener('click', rotatePending);
-els.preview.addEventListener('click', rotatePending);
+els.rotateBtn.addEventListener('click', () => { if (!isCpuTurn()) rotatePending(); });
+els.preview.addEventListener('click', () => { if (!isCpuTurn()) rotatePending(); });
 els.placeBtn.addEventListener('click', () => {
+  if (isCpuTurn()) return;
   if (ghost && game.pendingTile) commitPlacement(ghost.x, ghost.y, previewRot);
 });
-els.skipBtn.addEventListener('click', skipMeeple);
+els.skipBtn.addEventListener('click', () => { if (!isCpuTurn()) skipMeeple(); });
 els.undoBtn.addEventListener('click', undo);
 els.drawBtn.addEventListener('click', () => {
-  if (!game || !game.pendingTile || drawn) return;
+  if (!game || !game.pendingTile || drawn || isCpuTurn()) return;
   drawn = true;
   game.message = MSG_PLACE;
   soundPlace();
@@ -858,33 +929,92 @@ els.listBtn.addEventListener('click', () => {
   els.listDialog.showModal();
 });
 els.restartBtn.addEventListener('click', () => {
+  clearCpuTimer();
   try { localStorage.removeItem(STORE + 'game'); } catch { /* noop */ }
   els.result.hidden = true;
   els.setup.hidden = false;
   ghost = null;
 });
+
+// ---- 人数・席（人/CPU）選び ----
+let pendingCount = null;
+let pendingRoles = [];
+function renderRolesPicker() {
+  els.roles.replaceChildren(...pendingRoles.map((role, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.i = String(i);
+    btn.textContent = `${PLAYER_NAMES[i]}: ${role === 'cpu' ? 'CPU' : '人'}`;
+    return btn;
+  }));
+  els.roles.hidden = false;
+  els.startBtn.hidden = false;
+}
 els.playercount.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-n]');
   if (!btn) return;
-  startNewGame(Number(btn.dataset.n));
+  pendingCount = Number(btn.dataset.n);
+  pendingRoles = normalizeRoles(load('roles', []), pendingCount);
+  renderRolesPicker();
 });
+els.roles.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-i]');
+  if (!btn) return;
+  const i = Number(btn.dataset.i);
+  pendingRoles[i] = pendingRoles[i] === 'cpu' ? 'human' : 'cpu';
+  save('roles', pendingRoles);
+  renderRolesPicker();
+});
+els.startBtn.addEventListener('click', () => {
+  if (pendingCount == null) return;
+  startNewGame(pendingCount, pendingRoles);
+});
+
+// ---- 観戦（全員 CPU）の速さ・一時停止・設定に戻る ----
+els.spectateBar.addEventListener('click', (e) => {
+  const speedBtn = e.target.closest('button[data-speed]');
+  if (speedBtn) {
+    spectateSpeed = speedBtn.dataset.speed;
+    save('spectateSpeed', spectateSpeed);
+    renderAll();
+    return;
+  }
+  if (e.target === els.pauseBtn) {
+    spectatePaused = !spectatePaused;
+    if (spectatePaused) clearCpuTimer(); else scheduleCpuTurn();
+    renderAll();
+    return;
+  }
+  if (e.target === els.backToSetupBtn) {
+    clearCpuTimer();
+    saveGame();
+    els.game.hidden = true;
+    els.setup.hidden = false;
+    els.continueBtn.hidden = false;
+  }
+});
+
 window.addEventListener('resize', () => { if (!els.game.hidden) { resizeCanvas(); drawTrack(); drawBoard(); } });
 
-// ---- 起動時：保存があれば「つづきから」を出す ----
+// ---- つづきから（起動時に保存があれば出す。観戦を「設定に戻る」で抜けたときも同じボタンで戻れる） ----
+function continueSavedGame() {
+  const saved = load('game', null);
+  if (!saved || !saved.log || saved.v !== SAVE_VERSION) return;
+  els.continueBtn.hidden = true; // 一度使ったら古い保存を指したままにしない
+  gameRoles = normalizeRoles(load('roles', []), saved.playerCount);
+  game = rebuildFromSave(saved);
+  previewRot = game.pendingTile ? game.pendingTile.rot : 0;
+  drawn = false;
+  notice = '';
+  if (game.pendingTile) game.message = MSG_DRAW;
+  showGameScreen();
+  renderAll();
+  if (game.pendingTile == null && game.gameOver) showResultScreen();
+  else scheduleCpuTurn();
+}
+els.continueBtn.addEventListener('click', continueSavedGame);
+
 (function boot() {
   const saved = load('game', null);
-  if (saved && saved.log && saved.v === SAVE_VERSION) {
-    els.continueBtn.hidden = false;
-    els.continueBtn.addEventListener('click', () => {
-      els.continueBtn.hidden = true; // 一度使ったら古い保存を指したままにしない
-      game = rebuildFromSave(saved);
-      previewRot = game.pendingTile ? game.pendingTile.rot : 0;
-      drawn = false;
-      notice = '';
-      if (game.pendingTile) game.message = MSG_DRAW;
-      showGameScreen();
-      renderAll();
-      if (game.pendingTile == null && game.gameOver) showResultScreen();
-    });
-  }
+  if (saved && saved.log && saved.v === SAVE_VERSION) els.continueBtn.hidden = false;
 })();

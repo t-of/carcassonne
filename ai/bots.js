@@ -1,6 +1,7 @@
 'use strict';
 // 学習した CPU の強さを測る相手（ランダム・貪欲）。engine.js の legalMoves()/applyMove()/clone() だけを使う。
-// ブラウザには配らない（sw.js の SHELL に入れない）ので、ここでは import ではなく相対パスの ESM のまま。
+// 画面の CPU（main.js）もここの greedyBot をそのまま使う。プレーンな ESM なので Node からも
+// ブラウザからも同じファイルを import できる（sw.js の SHELL にも入れて offline で読めるようにしてある）。
 
 // どれか 1 手をランダムに選ぶ。手がなければ null（呼び出し側は起きないはずだが念のため）。
 export function randomBot(game, rng = Math.random) {
