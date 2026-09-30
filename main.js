@@ -826,38 +826,59 @@ function meepleHexes(color, n) {
   return svg;
 }
 
-// 得点ボード: 0〜49 のマスを 10 列 × 5 段に蛇行して並べ、駒を点数のマスに置く（50 点ごとに一周）
+// 得点ボード: 0〜49 のマスを横 20 × 縦 7 の外周に時計回りで並べる（49 の次は 0 に戻る輪）
+// 駒は点数を 50 で割った余りのマスに置き、50 点以上なら駒に +50・+100… と書く
+const TRACK_COLS = 20, TRACK_ROWS = 7;
+function trackCell(n) {
+  const C = TRACK_COLS, R = TRACK_ROWS;
+  if (n < C) return [n, 0];
+  n -= C;
+  if (n < R - 1) return [C - 1, n + 1];
+  n -= R - 1;
+  if (n < C - 1) return [C - 2 - n, R - 1];
+  n -= C - 1;
+  return [0, R - 2 - n];
+}
 function drawTrack() {
   const c = els.track, ctx = c.getContext('2d');
-  const W = c.width, H = c.height, cols = 10, rows = 5;
-  const cw = W / cols, chh = H / rows;
-  const cellOf = (n) => { const r = Math.floor(n / cols), k = n % cols; return [r % 2 ? cols - 1 - k : k, r]; };
+  const W = c.width, H = c.height;
+  const cw = W / TRACK_COLS, chh = H / TRACK_ROWS;
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = '#fbf8ef';
   ctx.fillRect(0, 0, W, H);
   ctx.strokeStyle = 'rgba(0,0,0,0.15)';
   ctx.lineWidth = 1;
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
-  ctx.font = `${Math.round(chh * 0.36)}px system-ui, sans-serif`;
+  ctx.font = `${Math.round(chh * 0.34)}px system-ui, sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   for (let n = 0; n < 50; n++) {
-    const [cx, cy] = cellOf(n);
+    const [cx, cy] = trackCell(n);
     ctx.strokeRect(cx * cw + 0.5, cy * chh + 0.5, cw - 1, chh - 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
     ctx.fillText(String(n), cx * cw + 3, cy * chh + 2);
   }
   // 同じマスに何人かいるときは少しずつずらす
   const byCell = new Map();
   game.players.forEach((p, i) => { const k = p.score % 50; if (!byCell.has(k)) byCell.set(k, []); byCell.get(k).push(i); });
+  const r = Math.min(cw, chh) * 0.42;
   for (const [k, list] of byCell) {
-    const [cx, cy] = cellOf(k);
+    const [cx, cy] = trackCell(k);
     list.forEach((i, j) => {
-      const off = (j - (list.length - 1) / 2) * cw * 0.16;
+      const off = (j - (list.length - 1) / 2) * r * 0.5;
+      const x = cx * cw + cw / 2 + off, y = cy * chh + chh / 2 + off * 0.4;
       ctx.fillStyle = PLAYER_COLORS[i];
       ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      hexPath(ctx, cx * cw + cw * 0.55 + off, cy * chh + chh * 0.6 + off * 0.3, Math.min(cw, chh) * 0.26);
+      hexPath(ctx, x, y, r);
       ctx.fill();
       ctx.stroke();
+      const laps = Math.floor(game.players[i].score / 50);
+      if (laps) {
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${Math.round(r * 0.62)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`+${laps * 50}`, x, y);
+      }
     });
   }
 }
