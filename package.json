@@ -1,0 +1,8 @@
+{
+  "name": "carcassonne",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node ai/test.mjs"
+  }
+}

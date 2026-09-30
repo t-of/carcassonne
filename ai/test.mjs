@@ -1,0 +1,91 @@
+#!/usr/bin/env node
+// engine.js の動作を確かめる:  node ai/test.mjs
+'use strict';
+import assert from 'node:assert/strict';
+import { Game, TILE_KINDS } from '../engine.js';
+import { randomBot, greedyBot } from './bots.js';
+
+// 種を渡せば、何度作っても同じ山札になる
+{
+  const a = new Game(2, { seed: 42 });
+  const b = new Game(2, { seed: 42 });
+  assert.deepEqual(a.deckOrder, b.deckOrder, '同じ種なのに山札の並びが違う');
+  const c = new Game(2, { seed: 43 });
+  assert.notDeepEqual(a.deckOrder, c.deckOrder, '違う種なのに山札の並びが同じ（たまたまの一致でなければおかしい）');
+}
+
+// clone() したあとに進めても、元は変わらない
+{
+  const g = new Game(2, { seed: 1 });
+  const snapshotBoardSize = g.board.size;
+  const snapshotLog = g.log.length;
+  const clone = g.clone();
+  for (let i = 0; i < 10 && !clone.gameOver; i++) {
+    const move = randomBot(clone);
+    if (!move) break;
+    clone.applyMove(move);
+  }
+  assert.equal(g.board.size, snapshotBoardSize, 'clone を進めたら元の盤面も変わった');
+  assert.equal(g.log.length, snapshotLog, 'clone を進めたら元の手順も変わった');
+  assert.ok(clone.board.size > snapshotBoardSize, 'clone 側が進んでいない');
+}
+
+// 得点チェック: 道を東西からふさいで完成させ、駒が返って点が入るか（main.js にあった自己チェックと同じ形）
+{
+  const g = new Game(2);
+  const capIdx = TILE_KINDS.findIndex((k) => k.edges.join('') === 'FRRR');
+  assert.ok(capIdx >= 0, 'FRRR タイルが見つからない');
+
+  g.placeTileOnBoard(1, 0, 0, capIdx); // 東をふさぐ（まだ西が開いている）
+  const roadOpt = g.meepleOptions(0, 0).find((o) => o.type === 'road');
+  assert.ok(roadOpt, '道の駒置き場所が見つからない');
+  g.placeMeeple(0, 0, roadOpt);
+  assert.equal(g.players[0].meeples, 6, '駒を置いたのに減っていない');
+
+  g.placeTileOnBoard(-1, 0, 0, capIdx); // 西もふさぐ → 道が完成するはず
+  g.scoreAround(-1, 0);
+  assert.equal(g.players[0].score, 3, '道の得点が違う');
+  assert.equal(g.players[0].meeples, 7, '完成した道の駒が戻っていない');
+}
+
+// legalMoves() は今のタイルの置ける場所ぶんの手を返し、applyMove() は次の手番・山札まで進める
+{
+  const g = new Game(2, { seed: 7 });
+  const moves = g.legalMoves();
+  assert.ok(moves.length > 0, '最初の手が 1 つもない');
+  for (const m of moves) assert.ok(g.isValidPlacement(TILE_KINDS[g.pendingTile.kindIndex], m.rot, m.x, m.y), '置けない手が混ざっている');
+  const before = g.currentPlayer;
+  g.applyMove(moves[0]);
+  assert.equal(g.currentPlayer, (before + 1) % g.playerCount, '次の人に進んでいない');
+  assert.equal(g.log.length, 1, '手が記録されていない');
+}
+
+// ランダム同士を最後まで打たせても、途中で例外を投げずに終わり、最終得点が並ぶ
+{
+  const g = new Game(2, { seed: 99 });
+  let turns = 0;
+  while (!g.gameOver && turns < 2000) {
+    const move = randomBot(g);
+    assert.ok(move, `${turns} 手目で置ける手が無い（本来は捨て札で回避されるはず）`);
+    g.applyMove(move);
+    turns++;
+  }
+  assert.ok(g.gameOver, '対局が終わらなかった');
+  assert.equal(g.finalRanking.length, 2, '最終順位が人数ぶんない');
+  assert.ok(g.players.every((p) => p.score >= 0), '負の得点がある');
+}
+
+// 貪欲 CPU も最後まで例外なく打てる
+{
+  const g = new Game(2, { seed: 3 });
+  let turns = 0;
+  while (!g.gameOver && turns < 2000) {
+    const move = greedyBot(g);
+    assert.ok(move, `${turns} 手目で置ける手が無い`);
+    g.applyMove(move);
+    turns++;
+  }
+  assert.ok(g.gameOver, '貪欲 CPU の対局が終わらなかった');
+}
+
+console.log('ok: すべて通った');
