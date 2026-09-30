@@ -754,10 +754,12 @@ function finishTurn() {
   notice = game.events.map((e) => `${e.players.map((i) => PLAYER_NAMES[i]).join('・')} +${e.points}点（${e.label}が完成）`).join('\n');
   game.events = [];
   game.currentPlayer = (game.currentPlayer + 1) % game.playerCount;
+  const totalBefore = game.players.reduce((t, p) => t + p.score, 0);
   game.drawNext();
   previewRot = game.pendingTile ? game.pendingTile.rot : 0;
   drawn = false;
   if (!game.pendingTile && game.gameOver) {
+    if (game.players.reduce((t, p) => t + p.score, 0) > totalBefore) soundScore(); // 最後の採点で点が入った
     saveGame();
     showResultScreen();
     return;
