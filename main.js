@@ -266,6 +266,7 @@ class Game {
     this.pendingTile = null;      // { kindIndex, rot }
     this.pendingOptions = null;   // 置いた直後の駒の選択肢
     this.message = '';
+    this.events = [];             // この手番で入った点（知らせに出す）
 
     this.placeTileOnBoard(0, 0, 0, startIdx, { silent: true });
     this.drawNext();
@@ -279,7 +280,7 @@ class Game {
       if (options.some((o) => o.rotations.length)) {
         this.deckPos++;
         this.pendingTile = { kindIndex, rot: options.find((o) => o.rotations.length).rotations[0] };
-        this.message = '光っているマスをタップ（もう一度タップで回る）→「ここに置く」';
+        this.message = '「タイルを引く」を押してください';
         return;
       }
       // どこにも置けない → 捨てて引き直し
@@ -393,13 +394,14 @@ class Game {
       }
     }
 
-    if (!opts.silent) {
-      // 完成した道・都市があれば採点
-      kind.cityGroups.forEach((g, gi) => this.checkFeatureComplete(cityKey(x, y, gi)));
-      kind.roadGroups.forEach((g, gi) => this.checkFeatureComplete(roadKey(x, y, gi)));
-      // このタイル自身、および周りの修道院の完成をチェック
-      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) this.checkCloisterComplete(x + dx, y + dy);
-    }
+  }
+
+  // 置いたタイルで完成した道・都市・修道院を採点する（駒を置くか決めたあとに呼ぶ）
+  scoreAround(x, y) {
+    const kind = TILE_KINDS[this.board.get(tileKey(x, y)).kindIndex];
+    kind.cityGroups.forEach((g, gi) => this.checkFeatureComplete(cityKey(x, y, gi)));
+    kind.roadGroups.forEach((g, gi) => this.checkFeatureComplete(roadKey(x, y, gi)));
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) this.checkCloisterComplete(x + dx, y + dy);
   }
 
   regionIndexOfPoint(info, point) {
@@ -458,6 +460,7 @@ class Game {
     if (full && c.meeple) {
       c.awarded = true;
       this.players[c.meeple.player].score += 9;
+      this.events.push({ players: [c.meeple.player], points: 9, label: '修道院' });
       this.players[c.meeple.player].meeples++;
       c.meeple = null;
       soundScore();
@@ -470,15 +473,17 @@ class Game {
     const meta = this.dsu.meta.get(root);
     if (!meta || meta.awarded || meta.meeples.length === 0) { if (meta) meta.awarded = true; return; }
     const per = meta.type === 'city' ? (meta.tiles.size * 2 + meta.pennants * 2) : meta.tiles.size;
-    this.awardToMajority(meta, per);
+    this.awardToMajority(meta, per, meta.type === 'city' ? '都市' : '道');
     meta.awarded = true;
   }
 
-  awardToMajority(meta, points) {
+  awardToMajority(meta, points, label) {
     const counts = new Map();
     for (const m of meta.meeples) counts.set(m.player, (counts.get(m.player) || 0) + 1);
     const max = Math.max(...counts.values());
-    for (const [player, c] of counts) if (c === max) this.players[player].score += points;
+    const winners = [];
+    for (const [player, c] of counts) if (c === max) { this.players[player].score += points; winners.push(player); }
+    if (label && this.events) this.events.push({ players: winners, points, label });
     // 駒は持ち主に返す
     for (const m of meta.meeples) this.players[m.player].meeples++;
     meta.meeples = [];
@@ -688,6 +693,7 @@ function selfCheckScoring() {
   console.assert(g.players[0].meeples === 6, '自己チェック: 駒を置いたのに減っていない');
 
   g.placeTileOnBoard(-1, 0, 0, capIdx); // 西もふさぐ → 道が完成するはず
+  g.scoreAround(-1, 0);
   console.assert(g.players[0].score === 3, `自己チェック: 道の得点が違う (${g.players[0].score})`);
   console.assert(g.players[0].meeples === 7, '自己チェック: 完成した道の駒が戻っていない');
 }
@@ -710,6 +716,9 @@ const els = {
   skipBtn: document.getElementById('skipBtn'),
   placeBtn: document.getElementById('placeBtn'),
   listBtn: document.getElementById('listBtn'),
+  drawBtn: document.getElementById('drawBtn'),
+  undoBtn: document.getElementById('undoBtn'),
+  notice: document.getElementById('notice'),
   track: document.getElementById('track'),
   listDialog: document.getElementById('listDialog'),
   listGrid: document.getElementById('listGrid'),
@@ -723,8 +732,10 @@ let previewRot = 0;
 let ghost = null; // 仮に置いたマス { x, y }。決定するまで向きを変えられる
 let view = { scale: 64, ox: 0, oy: 0 }; // scale = 1 タイルぶんの画面ピクセル数
 
+// 2: 草原の区画の決め方を直し、手の途中（駒を決める前）も保存するようにした版。1 の保存は区画の番号が合わないので続きから遊べない
+const SAVE_VERSION = 2;
 function serializeGame(g) {
-  return { v: 1, playerCount: g.playerCount, deckOrder: g.deckOrder, log: g.log };
+  return { v: SAVE_VERSION, playerCount: g.playerCount, deckOrder: g.deckOrder, log: g.log };
 }
 function saveGame() { if (game) save('game', serializeGame(game)); }
 
@@ -748,6 +759,7 @@ function rebuildFromSave(data) {
   g.pendingTile = null;
   g.pendingOptions = null;
   g.message = '';
+  g.events = [];
 
   const startIdx = TILE_KINDS.findIndex((k) => k.start);
   g.placeTileOnBoard(0, 0, 0, startIdx, { silent: true });
@@ -757,14 +769,22 @@ function rebuildFromSave(data) {
     if (!g.pendingTile) break; // 保存データがおかしいときの保険
     g.placeTileOnBoard(entry.x, entry.y, entry.rot, g.pendingTile.kindIndex);
     g.pendingTile = null;
+    g.log.push(entry);
+    if (entry.pending) {
+      // 駒を置くか決める前で止まっている手（最後の 1 手だけ）
+      g.pendingOptions = { x: entry.x, y: entry.y, options: g.players[g.currentPlayer].meeples > 0 ? g.meepleOptions(entry.x, entry.y) : [] };
+      g.message = MSG_MEEPLE;
+      replaying = false;
+      return g;
+    }
     if (entry.meepleKey != null) {
-      const options = g.meepleOptions(entry.x, entry.y);
-      const opt = options.find((o) => o.key === entry.meepleKey);
+      const opt = g.meepleOptions(entry.x, entry.y).find((o) => o.key === entry.meepleKey);
       if (opt) g.placeMeeple(entry.x, entry.y, opt);
     }
+    g.scoreAround(entry.x, entry.y);
     g.currentPlayer = (g.currentPlayer + 1) % g.playerCount;
-    g.log.push(entry);
   }
+  g.events = [];
   g.drawNext();
   replaying = false;
   return g;
@@ -773,6 +793,9 @@ function rebuildFromSave(data) {
 function startNewGame(playerCount) {
   game = new Game(playerCount);
   previewRot = game.pendingTile ? game.pendingTile.rot : 0;
+  drawn = false;
+  notice = '';
+  game.message = MSG_DRAW;
   saveGame();
   showGameScreen();
   renderAll();
@@ -911,8 +934,13 @@ function renderAll() {
   renderScoreboard();
   els.deckCount.textContent = String(game.deckOrder.length - game.deckPos + (game.pendingTile ? 1 : 0));
   els.message.textContent = game.message;
+  els.notice.textContent = notice;
+  els.notice.hidden = !notice;
   els.skipBtn.hidden = !game.pendingOptions;
   els.placeBtn.hidden = !ghost;
+  els.drawBtn.hidden = !(game.pendingTile && !drawn);
+  els.rotateBtn.disabled = !drawn || !!game.pendingOptions;
+  els.undoBtn.disabled = !ghost && !game.log.length;
   drawPreview();
   drawTrack();
   drawBoard();
@@ -1029,6 +1057,18 @@ function drawPreview() {
   const ctx = els.preview.getContext('2d');
   ctx.clearRect(0, 0, els.preview.width, els.preview.height);
   if (!game.pendingTile) return;
+  if (!drawn) {
+    // 伏せたタイル
+    const w = els.preview.width;
+    ctx.fillStyle = '#9aa0ab';
+    ctx.fillRect(0, 0, w, w);
+    ctx.fillStyle = '#fbf8ef';
+    ctx.font = `bold ${Math.round(w * 0.4)}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('?', w / 2, w / 2);
+    return;
+  }
   drawTileArt(ctx, game.pendingTile.kindIndex, previewRot, 0, 0, els.preview.width);
 }
 
@@ -1090,7 +1130,7 @@ function drawBoard() {
   }
 
   // 置ける場所のハイライト
-  if (game.pendingTile && !game.pendingOptions) {
+  if (game.pendingTile && !game.pendingOptions && drawn) {
     const seen = new Set();
     const cells = [0, 1, 2, 3].flatMap((r) => game.currentValidCells(r))
       .filter(([x, y]) => !seen.has(x + ',' + y) && seen.add(x + ',' + y));
@@ -1151,12 +1191,12 @@ function handleTap(sx, sy) {
         const d = Math.hypot(lx - opt.anchor[0], ly - opt.anchor[1]);
         if (d < bestD) { bestD = d; best = opt; }
       }
-      if (best) commitMeeple(x, y, best);
+      if (best && bestD < 0.12) commitMeeple(x, y, best); // 点のすぐ近くを押したときだけ
     }
     return;
   }
 
-  if (game.pendingTile) {
+  if (game.pendingTile && drawn) {
     const same = ghost && ghost.x === cx && ghost.y === cy;
     const rot = nextValidRot(cx, cy, same ? previewRot + 1 : previewRot);
     if (rot == null) return;
@@ -1177,10 +1217,17 @@ function nextValidRot(x, y, from) {
 }
 
 function rotatePending() {
-  if (!game || !game.pendingTile || game.pendingOptions) return;
+  if (!game || !game.pendingTile || game.pendingOptions || !drawn) return;
   previewRot = ghost ? nextValidRot(ghost.x, ghost.y, previewRot + 1) : (previewRot + 1) % 4;
   renderAll();
 }
+
+const PLAYER_NAMES = ['赤', '青', '緑', '黄', '紫'];
+const MSG_PLACE = '点線のマスをタップ（もう一度タップで回る）→「ここに置く」';
+const MSG_MEEPLE = '駒を置く点をタップ（置かないなら「駒を置かない」）';
+const MSG_DRAW = '「タイルを引く」を押してください';
+let drawn = false; // この手番のタイルを引いたか（引くまでは絵を伏せる）
+let notice = '';   // 前の手番で入った点の知らせ
 
 function commitPlacement(x, y, rot) {
   const kindIndex = game.pendingTile.kindIndex;
@@ -1190,11 +1237,12 @@ function commitPlacement(x, y, rot) {
   const canPlaceMeeple = game.players[game.currentPlayer].meeples > 0;
   const options = canPlaceMeeple ? game.meepleOptions(x, y) : [];
   game.pendingTile = null;
-  game.log.push({ kindIndex, x, y, rot, meepleKey: null });
+  game.log.push({ kindIndex, x, y, rot, meepleKey: null, pending: true });
   if (options.length) {
     game.pendingOptions = { x, y, options };
-    game.message = '駒を置きますか？（置かないなら「駒を置かない」）';
-    renderAll(); // 保存はこの手番の駒を決めてから（finishTurn で）
+    game.message = MSG_MEEPLE;
+    saveGame(); // 駒を決める前に再読み込みしても、この手から続けられる
+    renderAll();
   } else {
     finishTurn();
   }
@@ -1203,26 +1251,50 @@ function commitPlacement(x, y, rot) {
 function commitMeeple(x, y, option) {
   game.placeMeeple(x, y, option);
   game.log[game.log.length - 1].meepleKey = option.key;
-  game.pendingOptions = null;
   finishTurn();
 }
 
 function skipMeeple() {
   if (!game.pendingOptions) return;
-  game.pendingOptions = null;
   finishTurn();
 }
 
 function finishTurn() {
+  const entry = game.log[game.log.length - 1];
+  delete entry.pending;
+  game.pendingOptions = null;
+  game.events = [];
+  game.scoreAround(entry.x, entry.y);
+  notice = game.events.map((e) => `${e.players.map((i) => PLAYER_NAMES[i]).join('・')} +${e.points}点（${e.label}が完成）`).join('\n');
+  game.events = [];
   game.currentPlayer = (game.currentPlayer + 1) % game.playerCount;
   game.drawNext();
   previewRot = game.pendingTile ? game.pendingTile.rot : 0;
+  drawn = false;
   if (!game.pendingTile && game.gameOver) {
     saveGame();
     showResultScreen();
     return;
   }
-  game.message = '光っているマスをタップ（もう一度タップで回る）→「ここに置く」';
+  game.message = MSG_DRAW;
+  saveGame();
+  renderAll();
+}
+
+// 戻る: 仮置きを消す → 置いたタイルを手に戻す → 前の人の駒を決める前に戻す、の順に 1 段ずつ
+function undo() {
+  if (!game || game.gameOver) return;
+  if (ghost) { ghost = null; renderAll(); return; }
+  const log = game.log.map((e) => ({ ...e }));
+  if (!log.length) return;
+  const last = log[log.length - 1];
+  if (last.pending) log.pop();
+  else { last.meepleKey = null; last.pending = true; }
+  game = rebuildFromSave({ playerCount: game.playerCount, deckOrder: game.deckOrder, log });
+  previewRot = game.pendingTile ? game.pendingTile.rot : 0;
+  drawn = !!game.pendingTile; // 手に戻したタイルは引いたまま
+  if (game.pendingTile) game.message = MSG_PLACE;
+  notice = '';
   saveGame();
   renderAll();
 }
@@ -1233,6 +1305,14 @@ els.placeBtn.addEventListener('click', () => {
   if (ghost && game.pendingTile) commitPlacement(ghost.x, ghost.y, previewRot);
 });
 els.skipBtn.addEventListener('click', skipMeeple);
+els.undoBtn.addEventListener('click', undo);
+els.drawBtn.addEventListener('click', () => {
+  if (!game || !game.pendingTile || drawn) return;
+  drawn = true;
+  game.message = MSG_PLACE;
+  soundPlace();
+  renderAll();
+});
 els.listBtn.addEventListener('click', () => {
   if (!game) return;
   const left = TILE_KINDS.map(() => 0);
@@ -1266,12 +1346,15 @@ window.addEventListener('resize', () => { if (!els.game.hidden) { resizeCanvas()
 // ---- 起動時：保存があれば「つづきから」を出す ----
 (function boot() {
   const saved = load('game', null);
-  if (saved && saved.log) {
+  if (saved && saved.log && saved.v === SAVE_VERSION) {
     els.continueBtn.hidden = false;
     els.continueBtn.addEventListener('click', () => {
       els.continueBtn.hidden = true; // 一度使ったら古い保存を指したままにしない
       game = rebuildFromSave(saved);
       previewRot = game.pendingTile ? game.pendingTile.rot : 0;
+      drawn = false;
+      notice = '';
+      if (game.pendingTile) game.message = MSG_DRAW;
       showGameScreen();
       renderAll();
       if (game.pendingTile == null && game.gameOver) showResultScreen();

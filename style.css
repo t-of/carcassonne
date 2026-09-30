@@ -129,6 +129,8 @@ button { font: inherit; color: inherit; }
 .hud__tile canvas { width: 88px; height: 88px; border-radius: 6px; background: #fff; border: 1px solid rgba(255, 255, 255, 0.2); }
 .hud__info { flex: 1 1 120px; min-width: 0; }
 .message { margin: 0; font-size: 12px; }
+.notice { margin: 0 0 4px; font-size: 12px; color: var(--accent); white-space: pre-line; }
+.pill:disabled { opacity: 0.4; cursor: default; }
 .deckcount { margin: 2px 0 0; font-size: 11px; color: var(--muted); }
 .hud__buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 
@@ -159,6 +161,8 @@ button { font: inherit; color: inherit; }
 
 /* 狭い画面では右の列が細いので、置くタイルとボタンを小さくする */
 @media (max-width: 480px) {
+  .side { grid-template-rows: minmax(0, 1fr) auto; }
+  .notice { font-size: 11px; }
   .hud__tile canvas { width: 64px; height: 64px; }
   .side__tile .pill { padding: 4px 10px; font-size: 12px; }
   .message { font-size: 11px; }

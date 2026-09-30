@@ -67,11 +67,14 @@
               <button class="pill" id="rotateBtn">回す ⟳</button>
             </div>
             <div class="hud__info">
-              <p id="message" class="message">タイルを引きました</p>
+              <p id="notice" class="notice" hidden></p>
+              <p id="message" class="message"></p>
               <p class="deckcount">山札 残り <span id="deckCount">0</span> 枚</p>
               <div class="hud__buttons">
+                <button class="pill pill--accent" id="drawBtn" hidden>タイルを引く</button>
                 <button class="pill pill--accent" id="placeBtn" hidden>ここに置く</button>
                 <button class="pill" id="skipBtn" hidden>駒を置かない</button>
+                <button class="pill" id="undoBtn">戻る</button>
                 <button class="pill" id="listBtn">タイル一覧</button>
               </div>
             </div>
