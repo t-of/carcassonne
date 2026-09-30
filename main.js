@@ -93,6 +93,8 @@ const els = {
   pauseBtn: document.getElementById('pauseBtn'),
   backToSetupBtn: document.getElementById('backToSetupBtn'),
   revealSkipBtn: document.getElementById('revealSkipBtn'),
+  revealNextBtn: document.getElementById('revealNextBtn'),
+  revealAutoBtn: document.getElementById('revealAutoBtn'),
 };
 
 let game = null;
@@ -108,6 +110,8 @@ function syncDisplayScore() { displayScore = game.players.map((p) => p.score); }
 let animating = false;   // 演出中は操作を止める（renderAll がボタンを disabled/hidden にする）
 let reveal = null;       // 最後の採点の演出中: { tiles: Set<tileKey>, cityTiles: Set<tileKey> }（盤面のハイライトに使う）
 let revealSkip = false;  // 最後の採点の「とばす」が押されたか
+let revealAuto = false;  // 最後の採点を「次へ」を待たずに進めるか
+let revealNext = null;   // 「次へ」待ちのときの resolve
 function locked() { return isCpuTurn() || animating; }
 
 // ---- CPU（席ごとに 'human' | 'cpu'。既定は全員 human） ----
@@ -914,12 +918,26 @@ function revealText(e) {
 }
 
 // 山札が尽きたあとの最後の採点を、1件（1つの道・都市・修道院・草原）ずつ、盤面のハイライトと文字と
-// 駒の歩みで見せる。「とばす」が押されたら残りを一気に足して終わる。
+// 駒の歩みで見せる。1件ごとに「次へ」を待つ（「自動で進める」なら待たない）。
+// 「とばす」が押されたら残りを一気に足して終わる。
+function waitRevealNext() {
+  if (revealAuto || revealSkip) return Promise.resolve();
+  els.revealNextBtn.hidden = false;
+  return new Promise((resolve) => { revealNext = resolve; });
+}
+function resolveRevealNext() {
+  els.revealNextBtn.hidden = true;
+  const r = revealNext;
+  revealNext = null;
+  if (r) r();
+}
 async function revealFinalScoring(events) {
   if (!events.length) return;
   animating = true;
   revealSkip = false;
+  revealAuto = isSpectating(); // CPU だけの観戦は止めずに進める
   els.revealSkipBtn.hidden = false;
+  els.revealAutoBtn.hidden = revealAuto;
   for (const e of events) {
     if (revealSkip) {
       const targets = e.players.map((p) => displayScore[p] + e.points);
@@ -933,9 +951,12 @@ async function revealFinalScoring(events) {
     notice = revealText(e);
     renderAll();
     await animateScoreStep(e.players, e.points);
+    await waitRevealNext(); // 最後の1件のあとも待つので、結果画面の前に盤面を見られる
   }
   reveal = null;
   els.revealSkipBtn.hidden = true;
+  els.revealAutoBtn.hidden = true;
+  els.revealNextBtn.hidden = true;
   animating = false;
   notice = '';
 }
@@ -1044,7 +1065,13 @@ els.drawBtn.addEventListener('click', () => {
   soundPlace();
   renderAll();
 });
-els.revealSkipBtn.addEventListener('click', () => { revealSkip = true; });
+els.revealSkipBtn.addEventListener('click', () => { revealSkip = true; resolveRevealNext(); });
+els.revealNextBtn.addEventListener('click', resolveRevealNext);
+els.revealAutoBtn.addEventListener('click', () => {
+  revealAuto = true;
+  els.revealAutoBtn.hidden = true;
+  resolveRevealNext();
+});
 document.getElementById('rulesBtn').addEventListener('click', () => document.getElementById('rulesDialog').showModal());
 els.listBtn.addEventListener('click', () => {
   if (!game) return;
