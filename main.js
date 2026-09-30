@@ -491,17 +491,17 @@ class Game {
   }
 
   // ---- 駒 ----
-  meepleOptions(x, y) {
+  meepleOptions(x, y, all = false) { // all: 駒が埋まっている区画も含める（置いた駒の位置を出すとき）
     const nb = this.board.get(tileKey(x, y));
     const kind = TILE_KINDS[nb.kindIndex];
     const at = featureAnchors(nb.kindIndex, nb.rot);
     const options = [];
-    const free = (key) => this.dsu.meta_(key).meeples.length === 0;
+    const free = (key) => all || this.dsu.meta_(key).meeples.length === 0;
     kind.cityGroups.forEach((g, gi) => { const key = cityKey(x, y, gi); if (free(key)) options.push({ key, type: 'city', anchor: at.city[gi] }); });
     kind.roadGroups.forEach((g, gi) => { const key = roadKey(x, y, gi); if (free(key)) options.push({ key, type: 'road', anchor: at.road[gi] }); });
     if (kind.cloister) {
       const c = this.cloisters.get(tileKey(x, y));
-      if (c && !c.meeple) options.push({ key: 'M', type: 'cloister', anchor: [0.5, 0.5] });
+      if (c && (all || !c.meeple)) options.push({ key: 'M', type: 'cloister', anchor: [0.5, 0.5] });
     }
     at.field.forEach((anchor, ri) => { const key = fieldKey(x, y, ri); if (free(key)) options.push({ key, type: 'field', anchor }); });
     return options;
@@ -511,10 +511,10 @@ class Game {
     const player = this.currentPlayer;
     if (this.players[player].meeples <= 0) return false;
     if (option.type === 'cloister') {
-      this.cloisters.get(tileKey(x, y)).meeple = { player, x, y, anchor: option.anchor };
+      this.cloisters.get(tileKey(x, y)).meeple = { player, x, y, key: option.key, anchor: option.anchor };
     } else {
       const meta = this.dsu.meta_(option.key);
-      meta.meeples.push({ player, x, y, anchor: option.anchor });
+      meta.meeples.push({ player, x, y, key: option.key, anchor: option.anchor });
     }
     this.players[player].meeples--;
     soundMeeple();
@@ -566,8 +566,10 @@ class Game {
 // 道はその線の中点。都市・草原は、その区画の中で縁（ほかの区画・道・修道院・タイルの端）から一番遠い点。
 // タイルを細かい升目に分けて求める。種類と向きごとに 1 回だけ計算する。
 const ANCHOR_CACHE = new Map();
-function featureAnchors(kindIndex, rot) {
-  const ck = kindIndex * 4 + rot;
+// ドット絵は曲がり道を角を中心にした弧で描くので（pixel-tiles.js の roadDist）、駒の点もそれに合わせる
+let curvedRoads = false;
+function featureAnchors(kindIndex, rot, curved = curvedRoads) {
+  const ck = (kindIndex * 4 + rot) * 2 + (curved ? 1 : 0);
   if (ANCHOR_CACHE.has(ck)) return ANCHOR_CACHE.get(ck);
   const kind = TILE_KINDS[kindIndex];
   const info = analyzeTile(kind, rot);
@@ -576,7 +578,12 @@ function featureAnchors(kindIndex, rot) {
     const abs = g.edges.map((li) => (li + rot) % 4);
     return abs.length === 2 ? [EDGE_MID[abs[0]], EDGE_MID[abs[1]]] : [[0.5, 0.5], EDGE_MID[abs[0]]];
   });
-  const segDist = (x, y, [[ax, ay], [bx, by]]) => {
+  // 曲がり道の弧の中心（2 辺が隣どうしなら、その間の角）
+  const arcCorner = ([[ax, ay], [bx, by]]) => (curved && ax !== bx && ay !== by ? [ax === 0.5 ? bx : ax, ay === 0.5 ? by : ay] : null);
+  const segDist = (x, y, sg) => {
+    const c = arcCorner(sg);
+    if (c) return Math.abs(Math.hypot(x - c[0], y - c[1]) - 0.5);
+    const [[ax, ay], [bx, by]] = sg;
     const dx = bx - ax, dy = by - ay;
     const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)));
     return Math.hypot(x - ax - t * dx, y - ay - t * dy);
@@ -662,7 +669,11 @@ function featureAnchors(kindIndex, rot) {
       const cs = abs.map((d) => { const [[ax, ay], [bx, by]] = EDGE_CORNERS[d]; return [(0.5 + ax + bx) / 3, (0.5 + ay + by) / 3]; });
       return pole('c' + gi, [cs.reduce((t, c) => t + c[0], 0) / cs.length, cs.reduce((t, c) => t + c[1], 0) / cs.length]);
     }),
-    road: segs.map(([[ax, ay], [bx, by]]) => [(ax + bx) / 2, (ay + by) / 2]),
+    road: segs.map((sg) => {
+      const [[ax, ay], [bx, by]] = sg, c = arcCorner(sg);
+      // 弧のまん中（角から中心へ半径 0.5 進んだ点）
+      return c ? [c[0] + (0.5 - c[0]) * Math.SQRT1_2, c[1] + (0.5 - c[1]) * Math.SQRT1_2] : [(ax + bx) / 2, (ay + by) / 2];
+    }),
     field: info.regions.map((r, ri) => pole('f' + ri)),
   };
   ANCHOR_CACHE.set(ck, res);
@@ -739,6 +750,7 @@ const PIXEL_FONT = "'DotGothic16', monospace";
 const PX = { bg: '#1b1f3a', panel: '#1e2244', line: '#f4f0e0', gold: '#f2d45c', ink: '#2a2018', muted: '#9aa0c0' };
 function applyTheme() {
   document.documentElement.dataset.theme = theme;
+  curvedRoads = theme === 'pixel';
   document.querySelector('meta[name="theme-color"]').content = theme === 'pixel' ? '#14162b' : '#2c2620';
   els.themeBtn.textContent = theme === 'pixel' ? '見た目: ドット絵' : '見た目: シンプル';
 }
@@ -747,6 +759,8 @@ els.themeBtn.addEventListener('click', () => {
   theme = theme === 'pixel' ? 'simple' : 'pixel';
   save('theme', theme);
   applyTheme();
+  const po = game && game.pendingOptions;
+  if (po && po.options.length) po.options = game.meepleOptions(po.x, po.y);
   redrawAll();
 });
 applyTheme();
@@ -1214,7 +1228,13 @@ function meepleInfoForRender() {
   // 置いた駒を、置いたタイルの上にだけ描く（tileKey -> [{anchor, player}]）
   const map = new Map();
   if (!game) return map;
-  const add = (m) => { const k = tileKey(m.x, m.y); if (!map.has(k)) map.set(k, []); map.get(k).push(m); };
+  // 位置は今の見た目で出し直す（見た目を切り替えても、描いた道・草原からずれないように）
+  const add = (m) => {
+    const k = tileKey(m.x, m.y);
+    const opt = game.meepleOptions(m.x, m.y, true).find((o) => o.key === m.key);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(opt ? { ...m, anchor: opt.anchor } : m);
+  };
   const roots = new Set([...game.allNodeKeys].map((k) => game.dsu.find(k)));
   for (const r of roots) for (const m of game.dsu.meta.get(r).meeples) add(m);
   for (const c of game.cloisters.values()) if (c.meeple) add(c.meeple);
