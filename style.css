@@ -21,7 +21,8 @@ button { font: inherit; color: inherit; }
 
 /* 画面の端に置くものはセーフエリアの分だけ内側に。高さは 100vh ではなく 100dvh */
 .app {
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   padding:
@@ -106,12 +107,12 @@ button { font: inherit; color: inherit; }
 .player-chip.active { outline: 2px solid var(--accent); }
 .player-chip__dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 #board {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   width: 100%;
   border-radius: 12px;
   background: #efe9da;
-  touch-action: none; /* ドラッグ・ピンチは自前で処理する */
+  touch-action: manipulation;
 }
 .hud {
   display: flex;

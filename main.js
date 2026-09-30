@@ -814,7 +814,6 @@ function drawPreview() {
   drawTileArt(ctx, game.pendingTile.kindIndex, previewRot, 0, 0, els.preview.width);
 }
 
-let viewInited = false;
 function resizeCanvas() {
   const canvas = els.board;
   const rect = canvas.getBoundingClientRect();
@@ -822,12 +821,22 @@ function resizeCanvas() {
   canvas.width = Math.max(1, Math.round(rect.width * dpr));
   canvas.height = Math.max(1, Math.round(rect.height * dpr));
   canvas.dataset.dpr = dpr;
-  if (!viewInited) {
-    // 開始タイル（盤の (0,0)）が画面中央に来るように
-    view.ox = canvas.width / 2 - view.scale / 2;
-    view.oy = canvas.height / 2 - view.scale / 2;
-    viewInited = true;
+}
+
+// 置いたタイルと、その周り 1 マス（置ける場所）が全部入るように縮めて中央に置く
+function fitView() {
+  const canvas = els.board;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const key of game.board.keys()) {
+    const [x, y] = key.split(',').map(Number);
+    x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
   }
+  x0--; y0--; x1++; y1++;
+  const w = x1 - x0 + 1, h = y1 - y0 + 1;
+  const dpr = Number(canvas.dataset.dpr || 1);
+  view.scale = Math.min(canvas.width / w, canvas.height / h, 96 * dpr);
+  view.ox = (canvas.width - w * view.scale) / 2 - x0 * view.scale;
+  view.oy = (canvas.height - h * view.scale) / 2 - y0 * view.scale;
 }
 
 function meepleInfoForRender() {
@@ -870,6 +879,7 @@ function drawBoard() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = '#efe9da';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  fitView();
 
   const meeples = meepleInfoForRender();
   for (const [key, tile] of game.board) {
@@ -921,67 +931,13 @@ function drawBoard() {
   }
 }
 
-// ---- 入力（ドラッグでパン、ホイール／ピンチで拡大縮小、タップで配置） ----
-const pointers = new Map();
-let dragMoved = false;
-let pinchStartDist = 0;
-let pinchStartScale = 1;
-
-els.board.addEventListener('pointerdown', (e) => {
-  els.board.setPointerCapture(e.pointerId);
-  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  dragMoved = false;
-  if (pointers.size === 2) {
-    const [a, b] = [...pointers.values()];
-    pinchStartDist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-    pinchStartScale = view.scale;
-  }
-});
-els.board.addEventListener('pointermove', (e) => {
-  if (!pointers.has(e.pointerId)) return;
-  const prev = pointers.get(e.pointerId);
-  const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
-  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (pointers.size === 1) {
-    if (Math.abs(dx) + Math.abs(dy) > 3) dragMoved = true;
-    const dpr = Number(els.board.dataset.dpr || 1);
-    view.ox += dx * dpr;
-    view.oy += dy * dpr;
-    drawBoard();
-  } else if (pointers.size === 2) {
-    dragMoved = true;
-    const [a, b] = [...pointers.values()];
-    const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-    const newScale = Math.min(160, Math.max(24, pinchStartScale * (dist / pinchStartDist)));
-    view.scale = newScale;
-    drawBoard();
-  }
-});
-function endPointer(e) {
+// ---- 入力（盤は自動で全体が入るので、タップだけ） ----
+els.board.addEventListener('click', (e) => {
+  if (!game) return;
   const rect = els.board.getBoundingClientRect();
   const dpr = Number(els.board.dataset.dpr || 1);
-  const wasSingle = pointers.size === 1;
-  const last = pointers.get(e.pointerId);
-  pointers.delete(e.pointerId);
-  if (wasSingle && !dragMoved && last && game) {
-    const sx = (e.clientX - rect.left) * dpr;
-    const sy = (e.clientY - rect.top) * dpr;
-    handleTap(sx, sy);
-  }
-}
-els.board.addEventListener('pointerup', endPointer);
-els.board.addEventListener('pointercancel', endPointer);
-els.board.addEventListener('wheel', (e) => {
-  e.preventDefault();
-  const rect = els.board.getBoundingClientRect();
-  const dpr = Number(els.board.dataset.dpr || 1);
-  const mx = (e.clientX - rect.left) * dpr, my = (e.clientY - rect.top) * dpr;
-  const wx = (mx - view.ox) / view.scale, wy = (my - view.oy) / view.scale;
-  view.scale = Math.min(160, Math.max(24, view.scale * (e.deltaY < 0 ? 1.1 : 0.9)));
-  view.ox = mx - wx * view.scale;
-  view.oy = my - wy * view.scale;
-  drawBoard();
-}, { passive: false });
+  handleTap((e.clientX - rect.left) * dpr, (e.clientY - rect.top) * dpr);
+});
 
 function handleTap(sx, sy) {
   const size = view.scale;
@@ -1084,8 +1040,6 @@ els.restartBtn.addEventListener('click', () => {
   els.result.hidden = true;
   els.setup.hidden = false;
   ghost = null;
-  viewInited = false;
-  view = { scale: 64, ox: 0, oy: 0 };
 });
 els.playercount.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-n]');
