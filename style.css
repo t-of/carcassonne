@@ -162,9 +162,6 @@ button { font: inherit; color: inherit; }
 .tile-list__item canvas { width: 56px; height: 56px; }
 .tile-list__item.empty { opacity: 0.35; }
 
-/* ---- 得点ボードと駒の残り ---- */
-.player-chip__hexes { width: 22px; height: 22px; flex: none; }
-
 /* 狭い画面では右の列が細いので、置くタイルとボタンを小さくする */
 @media (max-width: 480px) {
   .side { grid-template-rows: minmax(0, 1fr) auto; }
@@ -173,29 +170,6 @@ button { font: inherit; color: inherit; }
   .side__tile .pill { padding: 4px 10px; font-size: 12px; }
   .message { font-size: 11px; }
   .player-chip { font-size: 11px; padding: 1px 6px 1px 2px; }
-  .player-chip__hexes { width: 18px; height: 18px; }
-}
-
-/* ---- 見た目「シンプル」: 線と平らな面だけ。角丸は控えめ、線はヘアライン ---- */
-[data-theme="simple"] .pill,
-[data-theme="simple"] .playercount button,
-[data-theme="simple"] .player-chip,
-[data-theme="simple"] .ranking li,
-[data-theme="simple"] .tile-list {
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 4px;
-}
-[data-theme="simple"] #board,
-[data-theme="simple"] .track,
-[data-theme="simple"] .hud__tile canvas {
-  border-radius: 4px;
-}
-[data-theme="simple"] .pill--accent { border-radius: 999px; } /* 丸のままにする（人数選びの強調） */
-[data-theme="simple"] .player-chip,
-[data-theme="simple"] .message,
-[data-theme="simple"] .deckcount,
-[data-theme="simple"] .rank-score {
-  font-variant-numeric: tabular-nums;
 }
 
 /* ---- 見た目「ドット絵」: RPG の窓のような枠、ドット文字、角ばったボタン ---- */
