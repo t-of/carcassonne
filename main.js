@@ -193,9 +193,9 @@ function rebuildFromSave(data) {
   g.players = Array.from({ length: data.playerCount }, (_, i) => ({ color: PLAYER_COLORS[i], score: 0, meeples: 7 }));
   g.currentPlayer = 0;
   g.board = new Map();
+  g.frontierSet = new Map();
   g.cloisters = new Map();
   g.dsu = new DSU();
-  g.allNodeKeys = new Set();
   g.gameOver = false;
   g.finalRanking = null;
   g.deckOrder = data.deckOrder;
@@ -597,8 +597,9 @@ function meepleInfoForRender() {
     if (!map.has(k)) map.set(k, []);
     map.get(k).push(opt ? { ...m, anchor: opt.anchor } : m);
   };
-  const roots = new Set([...game.allNodeKeys].map((k) => game.dsu.find(k)));
-  for (const r of roots) for (const m of game.dsu.meta.get(r).meeples) add(m);
+  // dsu.meta のキーはつねに「今生きている根」だけ（union() が古い根の meta を消すため）なので、
+  // 道・都市・草原ぜんぶの根を、重複なく直接なめられる。
+  for (const meta of game.dsu.meta.values()) for (const m of meta.meeples) add(m);
   for (const c of game.cloisters.values()) if (c.meeple) add(c.meeple);
   return map;
 }

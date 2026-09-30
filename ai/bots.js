@@ -29,10 +29,10 @@ export function greedyBot(game, rng = Math.random) {
 
 function estimatePotential(game, player) {
   let total = 0;
-  const roots = new Set([...game.allNodeKeys].map((k) => game.dsu.find(k)));
-  for (const r of roots) {
-    const meta = game.dsu.meta.get(r);
-    if (!meta || meta.awarded || !meta.meeples.some((m) => m.player === player)) continue;
+  // dsu.meta のキーはつねに「今生きている根」だけ（union() が古い根の meta を消すため）なので、
+  // allNodeKeys 経由で find() し直さなくても、直接なめれば道・都市の根に重複なく触れられる。
+  for (const meta of game.dsu.meta.values()) {
+    if (meta.awarded || !meta.meeples.some((m) => m.player === player)) continue;
     if (meta.type === 'city') total += meta.tiles.size * 2 + meta.pennants * 2;
     else if (meta.type === 'road') total += meta.tiles.size;
   }
