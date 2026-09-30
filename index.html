@@ -38,6 +38,7 @@
     <header class="bar">
       <h1 class="bar__title">carcassonne</h1>
       <div class="bar__actions">
+        <button class="pill" id="rulesBtn">ルール</button>
         <button class="pill" id="themeBtn">見た目: シンプル</button>
         <button class="pill" data-wak="install" hidden>アプリにする</button>
         <button class="pill" data-wak="share">共有</button>
@@ -97,6 +98,31 @@
     <dialog id="listDialog" class="tile-list">
       <p class="tile-list__head">タイル一覧（山札の残り / 全部）</p>
       <div id="listGrid" class="tile-list__grid"></div>
+      <form method="dialog"><button class="pill">閉じる</button></form>
+    </dialog>
+
+    <dialog id="rulesDialog" class="tile-list rules">
+      <p class="tile-list__head">ルール</p>
+      <h2>流れ</h2>
+      <ol>
+        <li>「タイルを引く」を押して、つながる所をタップ。「回す」で向きを変え、「ここに置く」で決める。辺は都市・道・草原どうしが合うように置く。</li>
+        <li>置いたタイルの上に、駒を 1 つ置ける（青い点をタップ）。置かないなら「駒を置かない」。</li>
+        <li>完成した都市・道・修道院は、その場で点が入り、駒が戻る。</li>
+        <li>山札がなくなったら終わり。最後の点を足して、多い人の勝ち。</li>
+      </ol>
+      <h2>駒（1 人 7 個）</h2>
+      <ul>
+        <li>ほかの駒がいる都市・道・草原には置けない（つながった先も含む）。</li>
+        <li>別々の区画がつながって駒が並んだら、駒の多い人が点をもらう（同じ数なら全員）。</li>
+      </ul>
+      <h2>点</h2>
+      <table>
+        <tr><th></th><th>完成</th><th>最後に未完成</th></tr>
+        <tr><td>都市</td><td>1 枚 2 点＋盾 2 点</td><td>1 枚 1 点＋盾 1 点</td></tr>
+        <tr><td>道</td><td>1 枚 1 点</td><td>1 枚 1 点</td></tr>
+        <tr><td>修道院</td><td>9 点（まわり 8 枚が埋まる）</td><td>1 点＋まわりの枚数</td></tr>
+        <tr><td>草原</td><td colspan="2">最後だけ。接する完成した都市 1 つにつき 3 点</td></tr>
+      </table>
       <form method="dialog"><button class="pill">閉じる</button></form>
     </dialog>
 

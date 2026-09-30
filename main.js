@@ -1453,6 +1453,7 @@ els.drawBtn.addEventListener('click', () => {
   soundPlace();
   renderAll();
 });
+document.getElementById('rulesBtn').addEventListener('click', () => document.getElementById('rulesDialog').showModal());
 els.listBtn.addEventListener('click', () => {
   if (!game) return;
   const left = TILE_KINDS.map(() => 0);
