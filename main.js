@@ -408,6 +408,12 @@ class Game {
   }
 
   mergeFeature(keyA, keyB, endA, endB) {
+    // すでに同じ地形（道が輪になる・都市が閉じる）なら、つないだ辺を開いた端から外すだけ
+    if (this.dsu.find(keyA) === this.dsu.find(keyB)) {
+      const m = this.dsu.meta_(keyA);
+      m.openEnds.delete(endA); m.openEnds.delete(endB);
+      return;
+    }
     this.dsu.union(keyA, keyB, (a, b) => {
       a.openEnds.delete(endA); b.openEnds.delete(endB);
       return {
@@ -776,9 +782,20 @@ function drawTileArt(ctx, kindIndex, rot, px, py, size, opts = {}) {
   kind.cityGroups.forEach((g) => {
     if (!g.pennant) return;
     const abs = g.edges.map((li) => (li + rot) % 4);
-    const [ax, ay] = avgEdgeAnchor(abs);
+    // 都市の隅（となりの辺も同じ都市ならその角）に、辺に沿って少し内側へ
+    const d = abs[0];
+    const [cx, cy] = EDGE_CORNERS[d][abs.includes((d + 1) % 4) ? 1 : 0];
+    const [mx, my] = EDGE_MID[d];
+    const ax = cx + (mx - cx) * 0.3 + (0.5 - mx) * 0.15;
+    const ay = cy + (my - cy) * 0.3 + (0.5 - my) * 0.15;
+    // ひし形（正方形を 45 度回した形）
+    const r = size * 0.07;
     ctx.beginPath();
-    ctx.arc(ax * size, ay * size, size * 0.05, 0, Math.PI * 2);
+    ctx.moveTo(ax * size, ay * size - r);
+    ctx.lineTo(ax * size + r, ay * size);
+    ctx.lineTo(ax * size, ay * size + r);
+    ctx.lineTo(ax * size - r, ay * size);
+    ctx.closePath();
     ctx.fill();
   });
 
