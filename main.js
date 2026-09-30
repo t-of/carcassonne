@@ -935,9 +935,9 @@ async function revealFinalScoring(events) {
   if (!events.length) return;
   animating = true;
   revealSkip = false;
-  revealAuto = isSpectating(); // CPU だけの観戦は止めずに進める
+  revealAuto = false;
   els.revealSkipBtn.hidden = false;
-  els.revealAutoBtn.hidden = revealAuto;
+  els.revealAutoBtn.hidden = false;
   for (const e of events) {
     if (revealSkip) {
       const targets = e.players.map((p) => displayScore[p] + e.points);
