@@ -961,7 +961,7 @@ function drawTileArt(ctx, kindIndex, rot, px, py, size, opts = {}) {
   // 道
   ctx.strokeStyle = '#2a2a2a';
   ctx.lineWidth = Math.max(1, size * 0.015);
-  ctx.lineCap = 'round';
+  ctx.lineCap = 'butt'; // 丸い端だとタイルの外へはみ出す
   kind.roadGroups.forEach((g) => {
     const abs = g.edges.map((li) => (li + rot) % 4);
     // 2 辺をつなぐ道は辺の中点どうしを直線で（曲がり道は斜め線）、1 辺だけの道は中央まで
