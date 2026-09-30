@@ -422,7 +422,7 @@ export class Game {
     });
     info.regions.forEach((region, ri) => {
       const fk = fieldKey(x, y, ri);
-      dsu.ensure(fk, () => ({ type: 'field', meeples: [], touches: new Set() }));
+      dsu.ensure(fk, () => ({ type: 'field', tiles: new Set([key]), meeples: [], touches: new Set() }));
       const meta = dsu.meta_(fk);
       for (const cg of region.touches) meta.touches.add(cityKey(x, y, cg));
     });
@@ -496,6 +496,7 @@ export class Game {
   mergeField(keyA, keyB) {
     this.dsu.union(keyA, keyB, (a, b) => ({
       type: 'field',
+      tiles: new Set([...a.tiles, ...b.tiles]),
       meeples: [...a.meeples, ...b.meeples],
       touches: new Set([...a.touches, ...b.touches]),
     }));
@@ -511,20 +512,23 @@ export class Game {
     }
   }
 
+  // full なのに未採点の修道院を採点する。x,y を渡すのは (自分の周り) から呼ばれるのと、
+  // 最終採点でぜんぶを見直すのと両方があるため。neighborCount は演出用の内訳（main.js の events）に積む。
   checkCloisterComplete(x, y) {
     const key = tileKey(x, y);
     const c = this.cloisters.get(key);
     if (!c || c.awarded) return;
-    let full = true;
+    let full = true, n = 0;
     for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
       if (dx === 0 && dy === 0) continue;
-      if (!this.board.has(tileKey(x + dx, y + dy))) full = false;
+      if (this.board.has(tileKey(x + dx, y + dy))) n++; else full = false;
     }
     if (full && c.meeple) {
       c.awarded = true;
-      this.players[c.meeple.player].score += 9;
-      this.events.push({ players: [c.meeple.player], points: 9, label: '修道院' });
-      this.players[c.meeple.player].meeples++;
+      const player = c.meeple.player;
+      this.players[player].score += 9;
+      if (this.events) this.events.push({ type: 'cloister', finished: true, players: [player], points: 9, tiles: [[x, y]], detail: { neighborCount: n } });
+      this.players[player].meeples++;
       c.meeple = null;
     } else if (full) {
       c.awarded = true; // 駒がいなくても、完成済みとして扱う（最後の採点で二重にしない）
@@ -535,17 +539,29 @@ export class Game {
     const meta = this.dsu.meta.get(root);
     if (!meta || meta.awarded || meta.meeples.length === 0) { if (meta) meta.awarded = true; return; }
     const per = meta.type === 'city' ? (meta.tiles.size * 2 + meta.pennants * 2) : meta.tiles.size;
-    this.awardToMajority(meta, per, meta.type === 'city' ? '都市' : '道');
+    this.awardToMajority(meta, per, meta.type, true);
     meta.awarded = true;
   }
 
-  awardToMajority(meta, points, label) {
+  // meta の道・都市・草原に置かれた駒のうち一番多い人（同数なら全員）に points を渡す。
+  // type/finished/extra は、main.js が採点の演出（内訳の文字・盤面のハイライト）に使う events の材料。
+  // 得点そのもの（points・勝者）はここでは変えない。
+  awardToMajority(meta, points, type, finished, extra = {}) {
     const counts = new Map();
     for (const m of meta.meeples) counts.set(m.player, (counts.get(m.player) || 0) + 1);
-    const max = Math.max(...counts.values());
-    const winners = [];
-    for (const [player, c] of counts) if (c === max) { this.players[player].score += points; winners.push(player); }
-    if (label && this.events) this.events.push({ players: winners, points, label });
+    if (counts.size) {
+      const max = Math.max(...counts.values());
+      const winners = [];
+      for (const [player, c] of counts) if (c === max) { this.players[player].score += points; winners.push(player); }
+      if (this.events) {
+        const tiles = extra.tiles || (meta.tiles ? [...meta.tiles].map((k) => k.split(',').map(Number)) : []);
+        const detail = extra.detail || (
+          type === 'city' ? { tileCount: meta.tiles.size, pennants: meta.pennants || 0 }
+          : type === 'road' ? { tileCount: meta.tiles.size } : undefined
+        );
+        this.events.push({ type, finished, players: winners, points, tiles, ...extra, detail });
+      }
+    }
     // 駒は持ち主に返す
     for (const m of meta.meeples) this.players[m.player].meeples++;
     meta.meeples = [];
@@ -663,8 +679,8 @@ export class Game {
     this.gameOver = true;
     for (const meta of this.dsu.meta.values()) {
       if (meta.awarded) continue;
-      if (meta.type === 'city') { this.awardToMajority(meta, meta.tiles.size + meta.pennants); meta.awarded = true; }
-      else if (meta.type === 'road') { this.awardToMajority(meta, meta.tiles.size); meta.awarded = true; }
+      if (meta.type === 'city') { this.awardToMajority(meta, meta.tiles.size + meta.pennants, 'city', false); meta.awarded = true; }
+      else if (meta.type === 'road') { this.awardToMajority(meta, meta.tiles.size, 'road', false); meta.awarded = true; }
     }
     for (const [key, c] of this.cloisters) {
       if (c.awarded) continue;
@@ -673,19 +689,25 @@ export class Game {
       const [x, y] = key.split(',').map(Number);
       let n = 0;
       for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { if (dx === 0 && dy === 0) continue; if (this.board.has(tileKey(x + dx, y + dy))) n++; }
-      this.players[c.meeple.player].score += 1 + n;
+      const player = c.meeple.player;
+      const points = 1 + n;
+      this.players[player].score += points;
+      if (this.events) this.events.push({ type: 'cloister', finished: false, players: [player], points, tiles: [[x, y]], detail: { neighborCount: n } });
     }
-    // 草原：接する「完成した都市」1 つにつき 3 点
+    // 草原：接する「完成した都市」1 つにつき 3 点（草原の内訳には、数えた都市のタイルも付ける）
     for (const meta0 of this.dsu.meta.values()) {
       if (meta0.type !== 'field') continue;
       if (meta0.meeples.length === 0) continue;
-      const completedCities = new Set();
+      const completedCityRoots = new Set();
       for (const ck of meta0.touches) {
         const croot = this.dsu.find(ck);
         const cmeta = this.dsu.meta.get(croot);
-        if (cmeta && cmeta.done) completedCities.add(croot);
+        if (cmeta && cmeta.done) completedCityRoots.add(croot);
       }
-      this.awardToMajority(meta0, completedCities.size * 3);
+      const cityTiles = [...completedCityRoots].flatMap((r) => [...this.dsu.meta.get(r).tiles].map((k) => k.split(',').map(Number)));
+      this.awardToMajority(meta0, completedCityRoots.size * 3, 'field', false, {
+        cityTiles, detail: { cityCount: completedCityRoots.size },
+      });
     }
     this.finalRanking = this.players.map((p, i) => ({ i, color: p.color, score: p.score }))
       .sort((a, b) => b.score - a.score);

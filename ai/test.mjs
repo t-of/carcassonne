@@ -88,4 +88,28 @@ import { randomBot, greedyBot } from './bots.js';
   assert.ok(g.gameOver, '貪欲 CPU の対局が終わらなかった');
 }
 
+// 最後の採点の内訳(events): main.js が演出に使う events の合計が、実際に入った点とちょうど合うか
+// （events は main.js が最後の採点を1件ずつ見せるための材料。得点そのものを変えていないことを確かめる）
+for (const seed of [11, 22, 33, 44]) {
+  const g = new Game(2, { seed });
+  let turns = 0, totalBefore = 0;
+  while (!g.gameOver && turns < 2000) {
+    const move = greedyBot(g);
+    assert.ok(move, `${turns} 手目で置ける手が無い`);
+    totalBefore = g.players.reduce((s, p) => s + p.score, 0);
+    g.applyMove(move);
+    turns++;
+  }
+  assert.ok(g.gameOver, '対局が終わらなかった');
+  const totalAfter = g.players.reduce((s, p) => s + p.score, 0);
+  const gained = totalAfter - totalBefore;
+  const fromEvents = g.events.reduce((s, e) => s + e.points * e.players.length, 0);
+  assert.equal(fromEvents, gained, `seed=${seed}: 最後の採点の内訳(events)の合計が実際に入った点と合わない`);
+  for (const e of g.events) {
+    assert.ok(['city', 'road', 'cloister', 'field'].includes(e.type), `内訳の種類がおかしい: ${e.type}`);
+    assert.ok(Array.isArray(e.tiles) && e.tiles.length > 0, '内訳にタイル位置がない');
+    if (e.type === 'field') assert.ok(Array.isArray(e.cityTiles), '草原の内訳に数えた都市のタイルがない');
+  }
+}
+
 console.log('ok: すべて通った');

@@ -54,6 +54,11 @@ function beep(freq, dur) {
 const soundPlace = () => beep(320, 0.12);
 const soundMeeple = () => beep(520, 0.1);
 const soundScore = () => beep(700, 0.2);
+const soundStep = () => beep(620, 0.05); // 得点ボードの駒が1マス進むごとの小さい音
+
+// prefers-reduced-motion ならアニメーションを飛ばす（すぐ数字だけ合わせる）
+const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 // ================================================================
 // 画面まわり
@@ -87,12 +92,23 @@ const els = {
   spectateBar: document.getElementById('spectateBar'),
   pauseBtn: document.getElementById('pauseBtn'),
   backToSetupBtn: document.getElementById('backToSetupBtn'),
+  revealSkipBtn: document.getElementById('revealSkipBtn'),
 };
 
 let game = null;
 let previewRot = 0;
 let ghost = null; // 仮に置いたマス { x, y }。決定するまで向きを変えられる
 let view = { scale: 64, ox: 0, oy: 0 }; // scale = 1 タイルぶんの画面ピクセル数
+
+// ---- 得点ボードの駒を1マスずつ進める演出 ----
+// displayScore は得点ボードに描く「見せかけの点」。実際の得点(game.players[i].score)は即座に増えるが、
+// 駒はこちらを追いかけて1マスずつ進む（animateScoreStep が少しずつ追いつかせる）。
+let displayScore = [];
+function syncDisplayScore() { displayScore = game.players.map((p) => p.score); }
+let animating = false;   // 演出中は操作を止める（renderAll がボタンを disabled/hidden にする）
+let reveal = null;       // 最後の採点の演出中: { tiles: Set<tileKey>, cityTiles: Set<tileKey> }（盤面のハイライトに使う）
+let revealSkip = false;  // 最後の採点の「とばす」が押されたか
+function locked() { return isCpuTurn() || animating; }
 
 // ---- CPU（席ごとに 'human' | 'cpu'。既定は全員 human） ----
 let gameRoles = [];
@@ -296,6 +312,7 @@ function rebuildFromSave(data) {
 function startNewGame(playerCount, roles) {
   game = new Game(playerCount);
   gameRoles = normalizeRoles(roles || [], playerCount);
+  syncDisplayScore();
   previewRot = game.pendingTile ? game.pendingTile.rot : 0;
   drawn = false;
   notice = '';
@@ -399,9 +416,9 @@ function drawTrack() {
   ctx.closePath();
   ctx.stroke();
   ctx.lineWidth = 1;
-  // 同じマスに何人かいるときは少しずつずらす
+  // 同じマスに何人かいるときは少しずつずらす（駒の位置は displayScore。演出中は実際の点よりまだ手前）
   const byCell = new Map();
-  game.players.forEach((p, i) => { const k = p.score % 50; if (!byCell.has(k)) byCell.set(k, []); byCell.get(k).push(i); });
+  game.players.forEach((_, i) => { const k = ((displayScore[i] % 50) + 50) % 50; if (!byCell.has(k)) byCell.set(k, []); byCell.get(k).push(i); });
   const r = Math.min(cw, chh) * 0.42;
   for (const [k, list] of byCell) {
     const [cx, cy] = trackCell(k);
@@ -418,7 +435,7 @@ function drawTrack() {
         ctx.stroke();
         ctx.lineWidth = 1;
       }
-      const laps = Math.floor(game.players[i].score / 50);
+      const laps = Math.floor(displayScore[i] / 50);
       if (laps) {
         ctx.fillStyle = '#fff';
         ctx.font = `bold ${Math.round(r * 0.62)}px ${pixel ? PIXEL_FONT : 'ui-monospace, "SF Mono", Menlo, monospace'}`;
@@ -436,15 +453,23 @@ function renderScoreboard() {
   game.players.forEach((p, i) => {
     const chip = document.createElement('div');
     chip.className = 'player-chip' + (i === game.currentPlayer ? ' active' : '');
+    const shownScore = displayScore[i] ?? p.score;
     if (theme === 'pixel') {
       chip.appendChild(meepleIcon(p.color, `駒 残り ${p.meeples}`));
-      chip.appendChild(document.createTextNode(`×${p.meeples}　${p.score}点`));
+      chip.appendChild(document.createTextNode(`×${p.meeples}　${shownScore}点`));
     } else {
       chip.appendChild(meepleHexes(p.color, p.meeples));
-      chip.appendChild(document.createTextNode(`${p.score}点`));
+      chip.appendChild(document.createTextNode(`${shownScore}点`));
     }
     els.scoreboard.appendChild(chip);
   });
+}
+
+// 得点の欄と得点ボードだけを描き直す（演出の1マスごとに呼ぶので、盤面全体より軽くする）
+function renderScoreArea() {
+  if (!game) return;
+  renderScoreboard();
+  drawTrack();
 }
 
 function renderAll() {
@@ -454,12 +479,12 @@ function renderAll() {
   els.message.textContent = game.message;
   els.notice.textContent = notice;
   els.notice.hidden = !notice;
-  const cpuTurn = isCpuTurn();
-  els.skipBtn.hidden = !game.pendingOptions || cpuTurn;
-  els.placeBtn.hidden = !ghost || cpuTurn;
-  els.drawBtn.hidden = !(game.pendingTile && !drawn) || cpuTurn;
-  els.rotateBtn.disabled = !drawn || !!game.pendingOptions || cpuTurn;
-  els.undoBtn.disabled = !ghost && !game.log.length;
+  const locked_ = locked();
+  els.skipBtn.hidden = !game.pendingOptions || locked_;
+  els.placeBtn.hidden = !ghost || locked_;
+  els.drawBtn.hidden = !(game.pendingTile && !drawn) || locked_;
+  els.rotateBtn.disabled = !drawn || !!game.pendingOptions || locked_;
+  els.undoBtn.disabled = (!ghost && !game.log.length) || animating;
   els.spectateBar.hidden = !isSpectating();
   if (isSpectating()) {
     els.pauseBtn.textContent = spectatePaused ? '再開' : '一時停止';
@@ -689,6 +714,35 @@ function drawBoard() {
     drawTileArt(ctx, tile.kindIndex, tile.rot, px, py, size, { meeples: meeples.get(key) });
   }
 
+  // 最後の採点の演出中: 今数えている対象だけ目立たせ、ほかは暗くする
+  if (reveal) {
+    const size = view.scale;
+    const dpr = Number(canvas.dataset.dpr || 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    for (const key of game.board.keys()) {
+      if (reveal.tiles.has(key) || reveal.cityTiles.has(key)) continue;
+      const [x, y] = key.split(',').map(Number);
+      ctx.fillRect(view.ox + x * size, view.oy + y * size, size, size);
+    }
+    ctx.lineWidth = 3 * dpr;
+    ctx.strokeStyle = theme === 'pixel' ? PX.gold : '#e0524f';
+    for (const key of reveal.tiles) {
+      const [x, y] = key.split(',').map(Number);
+      const px = view.ox + x * size, py = view.oy + y * size;
+      ctx.strokeRect(px + 1.5, py + 1.5, size - 3, size - 3);
+    }
+    ctx.strokeStyle = '#4f8ef7';
+    ctx.setLineDash([4 * dpr, 4 * dpr]);
+    for (const key of reveal.cityTiles) {
+      if (reveal.tiles.has(key)) continue;
+      const [x, y] = key.split(',').map(Number);
+      const px = view.ox + x * size, py = view.oy + y * size;
+      ctx.strokeRect(px + 1.5, py + 1.5, size - 3, size - 3);
+    }
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1;
+  }
+
   // 置ける場所のハイライト
   if (game.pendingTile && !game.pendingOptions && drawn) {
     const seen = new Set();
@@ -760,7 +814,7 @@ function drawBoard() {
 
 // ---- 入力（盤は自動で全体が入るので、タップだけ） ----
 els.board.addEventListener('click', (e) => {
-  if (!game || isCpuTurn()) return;
+  if (!game || locked()) return;
   const rect = els.board.getBoundingClientRect();
   const dpr = Number(els.board.dataset.dpr || 1);
   handleTap((e.clientX - rect.left) * dpr, (e.clientY - rect.top) * dpr);
@@ -812,6 +866,79 @@ function rotatePending() {
 }
 
 const PLAYER_NAMES = ['赤', '青', '緑', '黄', '紫'];
+const TYPE_LABEL = { city: '都市', road: '道', cloister: '修道院', field: '草原' };
+const playerNames = (list) => list.map((i) => PLAYER_NAMES[i]).join('・');
+
+// 1件ぶんの得点(players に points 点)を、得点ボードの駒が1マスずつ進むように見せる。
+// 1マスあたり 80〜120ms ほど。点が多いときは全体が長くなりすぎないよう1マスを縮める。
+// 「とばす」が押されたら、その場で残りを一気に足して終わる。再生中・reduced-motion なら最初から一気に足す。
+function stepDelayFor(points) {
+  const base = 100, budgetMs = 1200;
+  return Math.max(30, Math.min(base, budgetMs / Math.max(points, 1)));
+}
+async function animateScoreStep(players, points) {
+  if (!players.length || points <= 0) return;
+  const targets = players.map((p) => displayScore[p] + points);
+  if (!(reducedMotion || replaying)) {
+    const ms = stepDelayFor(points);
+    for (let step = 0; step < points; step++) {
+      if (revealSkip) break;
+      for (const p of players) displayScore[p]++;
+      soundStep();
+      renderScoreArea();
+      await wait(ms);
+    }
+  }
+  players.forEach((p, i) => { displayScore[p] = targets[i]; }); // ずれなく、とばしたときも必ず合わせる
+  renderScoreArea();
+}
+
+// 手番中の完成(道・都市・修道院)を、駒の歩みで1件ずつ見せる（複数同時完成なら順番に）
+async function animateTurnEvents(events) {
+  if (!events.length) return;
+  animating = true;
+  renderAll();
+  for (const e of events) await animateScoreStep(e.players, e.points);
+  animating = false;
+  renderAll();
+}
+
+// 何をどう数えたか（最後の採点の1件ぶん）を文字にする
+function revealText(e) {
+  const who = playerNames(e.players);
+  if (e.type === 'city') return `${who} 未完成の都市: タイル${e.detail.tileCount}枚 + 紋章${e.detail.pennants} = ${e.points}点`;
+  if (e.type === 'road') return `${who} 未完成の道: タイル${e.detail.tileCount}枚 = ${e.points}点`;
+  if (e.type === 'cloister') return `${who} 修道院: 自分1 + 周り${e.detail.neighborCount}枚 = ${e.points}点`;
+  if (e.type === 'field') return `${who} 草原: 完成した都市${e.detail.cityCount}つ × 3 = ${e.points}点`;
+  return `${who} +${e.points}点`;
+}
+
+// 山札が尽きたあとの最後の採点を、1件（1つの道・都市・修道院・草原）ずつ、盤面のハイライトと文字と
+// 駒の歩みで見せる。「とばす」が押されたら残りを一気に足して終わる。
+async function revealFinalScoring(events) {
+  if (!events.length) return;
+  animating = true;
+  revealSkip = false;
+  els.revealSkipBtn.hidden = false;
+  for (const e of events) {
+    if (revealSkip) {
+      const targets = e.players.map((p) => displayScore[p] + e.points);
+      e.players.forEach((p, i) => { displayScore[p] = targets[i]; });
+      continue;
+    }
+    reveal = {
+      tiles: new Set(e.tiles.map(([x, y]) => tileKey(x, y))),
+      cityTiles: new Set((e.cityTiles || []).map(([x, y]) => tileKey(x, y))),
+    };
+    notice = revealText(e);
+    renderAll();
+    await animateScoreStep(e.players, e.points);
+  }
+  reveal = null;
+  els.revealSkipBtn.hidden = true;
+  animating = false;
+  notice = '';
+}
 const MSG_PLACE = '点線のマスをタップ（もう一度タップで回る）→「ここに置く」';
 const MSG_MEEPLE = '駒を置く点をタップ（置かないなら「駒を置かない」）';
 const MSG_DRAW = '「タイルを引く」を押してください';
@@ -849,23 +976,29 @@ function skipMeeple() {
   finishTurn();
 }
 
-function finishTurn() {
+async function finishTurn() {
   const entry = game.log[game.log.length - 1];
   delete entry.pending;
   game.pendingOptions = null;
   game.events = [];
   game.scoreAround(entry.x, entry.y);
-  if (game.events.length) soundScore();
-  notice = game.events.map((e) => `${e.players.map((i) => PLAYER_NAMES[i]).join('・')} +${e.points}点（${e.label}が完成）`).join('\n');
+  const turnEvents = game.events;
   game.events = [];
+  if (turnEvents.length) {
+    notice = turnEvents.map((e) => `${playerNames(e.players)} +${e.points}点（${TYPE_LABEL[e.type]}が完成）`).join('\n');
+    await animateTurnEvents(turnEvents);
+  } else {
+    notice = '';
+  }
   game.currentPlayer = (game.currentPlayer + 1) % game.playerCount;
-  const totalBefore = game.players.reduce((t, p) => t + p.score, 0);
   game.drawNext();
   previewRot = game.pendingTile ? game.pendingTile.rot : 0;
   drawn = false;
   if (!game.pendingTile && game.gameOver) {
-    if (game.players.reduce((t, p) => t + p.score, 0) > totalBefore) soundScore(); // 最後の採点で点が入った
+    const finalEvents = game.events;
+    game.events = [];
     saveGame();
+    await revealFinalScoring(finalEvents);
     showResultScreen();
     return;
   }
@@ -877,7 +1010,7 @@ function finishTurn() {
 
 // 戻る: 仮置きを消す → 置いたタイルを手に戻す → 前の人の駒を決める前に戻す、の順に 1 段ずつ
 function undo() {
-  if (!game || game.gameOver) return;
+  if (!game || game.gameOver || animating) return;
   clearCpuTimer(); // CPU が手を進めている途中でも、まずそこで止める
   if (ghost) { ghost = null; renderAll(); scheduleCpuTurn(); return; }
   const log = game.log.map((e) => ({ ...e }));
@@ -886,6 +1019,7 @@ function undo() {
   if (last.pending) log.pop();
   else { last.meepleKey = null; last.pending = true; }
   game = rebuildFromSave({ playerCount: game.playerCount, deckOrder: game.deckOrder, log });
+  syncDisplayScore(); // 戻るときは演出なしですぐ合わせる
   previewRot = game.pendingTile ? game.pendingTile.rot : 0;
   drawn = !!game.pendingTile; // 手に戻したタイルは引いたまま
   if (game.pendingTile) game.message = MSG_PLACE;
@@ -895,21 +1029,22 @@ function undo() {
   scheduleCpuTurn();
 }
 
-els.rotateBtn.addEventListener('click', () => { if (!isCpuTurn()) rotatePending(); });
-els.preview.addEventListener('click', () => { if (!isCpuTurn()) rotatePending(); });
+els.rotateBtn.addEventListener('click', () => { if (!locked()) rotatePending(); });
+els.preview.addEventListener('click', () => { if (!locked()) rotatePending(); });
 els.placeBtn.addEventListener('click', () => {
-  if (isCpuTurn()) return;
+  if (locked()) return;
   if (ghost && game.pendingTile) commitPlacement(ghost.x, ghost.y, previewRot);
 });
-els.skipBtn.addEventListener('click', () => { if (!isCpuTurn()) skipMeeple(); });
+els.skipBtn.addEventListener('click', () => { if (!locked()) skipMeeple(); });
 els.undoBtn.addEventListener('click', undo);
 els.drawBtn.addEventListener('click', () => {
-  if (!game || !game.pendingTile || drawn || isCpuTurn()) return;
+  if (!game || !game.pendingTile || drawn || locked()) return;
   drawn = true;
   game.message = MSG_PLACE;
   soundPlace();
   renderAll();
 });
+els.revealSkipBtn.addEventListener('click', () => { revealSkip = true; });
 document.getElementById('rulesBtn').addEventListener('click', () => document.getElementById('rulesDialog').showModal());
 els.listBtn.addEventListener('click', () => {
   if (!game) return;
@@ -1003,6 +1138,7 @@ function continueSavedGame() {
   els.continueBtn.hidden = true; // 一度使ったら古い保存を指したままにしない
   gameRoles = normalizeRoles(load('roles', []), saved.playerCount);
   game = rebuildFromSave(saved);
+  syncDisplayScore();
   previewRot = game.pendingTile ? game.pendingTile.rot : 0;
   drawn = false;
   notice = '';
