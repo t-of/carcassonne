@@ -963,12 +963,6 @@ function meepleInfoForRender() {
   return map;
 }
 
-const REDUCED_MOTION = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-// タイルを置く場所を選んでいる間だけ、点滅のために描き直す
-setInterval(() => {
-  if (game && game.pendingTile && !game.pendingOptions && !els.game.hidden && !REDUCED_MOTION) drawBoard();
-}, 500);
-
 function drawBoard() {
   const canvas = els.board;
   const ctx = canvas.getContext('2d');
@@ -992,18 +986,15 @@ function drawBoard() {
     const seen = new Set();
     const cells = [0, 1, 2, 3].flatMap((r) => game.currentValidCells(r))
       .filter(([x, y]) => !seen.has(x + ',' + y) && seen.add(x + ',' + y));
-    // 点線の正方形を点滅させる（動きを減らす設定なら点滅しない）
-    const on = REDUCED_MOTION || Math.floor(performance.now() / 500) % 2 === 0;
+    // 点線の正方形で示す
     const dpr = Number(canvas.dataset.dpr || 1);
     ctx.strokeStyle = '#2a2a2a';
     ctx.lineWidth = 1.5 * dpr;
     ctx.setLineDash([4 * dpr, 3 * dpr]);
-    if (on) {
-      for (const [x, y] of cells) {
-        const size = view.scale;
-        const px = view.ox + x * size, py = view.oy + y * size;
-        ctx.strokeRect(px + 3 * dpr, py + 3 * dpr, size - 6 * dpr, size - 6 * dpr);
-      }
+    for (const [x, y] of cells) {
+      const size = view.scale;
+      const px = view.ox + x * size, py = view.oy + y * size;
+      ctx.strokeRect(px + 3 * dpr, py + 3 * dpr, size - 6 * dpr, size - 6 * dpr);
     }
     ctx.setLineDash([]);
     if (ghost) {
