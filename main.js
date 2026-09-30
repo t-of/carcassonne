@@ -826,19 +826,20 @@ function meepleHexes(color, n) {
   return svg;
 }
 
-// 得点ボード: 0〜49 のマスを横 20 × 縦 7 の外周に時計回りで並べる（49 の次は 0 に戻る輪）
+// 得点ボード: 0〜49 のマスを 10 列 × 5 段にすき間なく並べた輪（49 の次は 0 に戻る）
+// 0 は左上。左の列を下り、次の列から 1〜4 段目を上下に折り返して右端まで行き、一番上の段を左へ戻る
 // 駒は点数を 50 で割った余りのマスに置き、50 点以上なら駒に +50・+100… と書く
-const TRACK_COLS = 20, TRACK_ROWS = 7;
-function trackCell(n) {
-  const C = TRACK_COLS, R = TRACK_ROWS;
-  if (n < C) return [n, 0];
-  n -= C;
-  if (n < R - 1) return [C - 1, n + 1];
-  n -= R - 1;
-  if (n < C - 1) return [C - 2 - n, R - 1];
-  n -= C - 1;
-  return [0, R - 2 - n];
-}
+const TRACK_COLS = 10, TRACK_ROWS = 5;
+const TRACK_PATH = (() => {
+  const path = [];
+  for (let r = 0; r < TRACK_ROWS; r++) path.push([0, r]);
+  for (let c = 1; c < TRACK_COLS; c++) {
+    for (let k = 0; k < TRACK_ROWS - 1; k++) path.push([c, c % 2 ? TRACK_ROWS - 1 - k : k + 1]);
+  }
+  for (let c = TRACK_COLS - 1; c >= 1; c--) path.push([c, 0]);
+  return path;
+})();
+const trackCell = (n) => TRACK_PATH[n];
 function drawTrack() {
   const c = els.track, ctx = c.getContext('2d');
   const W = c.width, H = c.height;
@@ -857,6 +858,14 @@ function drawTrack() {
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
     ctx.fillText(String(n), cx * cw + 3, cy * chh + 2);
   }
+  // 道順が分かるように、マスの中心を順に結ぶ薄い線
+  ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+  ctx.lineWidth = Math.max(2, chh * 0.06);
+  ctx.beginPath();
+  TRACK_PATH.forEach(([cx, cy]) => ctx.lineTo(cx * cw + cw / 2, cy * chh + chh / 2));
+  ctx.closePath();
+  ctx.stroke();
+  ctx.lineWidth = 1;
   // 同じマスに何人かいるときは少しずつずらす
   const byCell = new Map();
   game.players.forEach((p, i) => { const k = p.score % 50; if (!byCell.has(k)) byCell.set(k, []); byCell.get(k).push(i); });
