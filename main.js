@@ -157,13 +157,34 @@ function analyzeTile(kind, rot) {
   const uni = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
   const exists = (p) => absEdges[Math.floor(p / 2)] !== 'C';
 
-  for (let d = 0; d < 4; d++) if (absEdges[d] === 'F') uni(2 * d, 2 * d + 1);
+  // 外周を時計回りに 16 等分した位置: 点 p は 2p+1、辺 d の中点は 4d+2
+  const mid = (d) => 4 * d + 2;
+  const chords = [];
+  const pairs = (ds) => { for (let i = 0; i < ds.length; i++) for (let j = i + 1; j < ds.length; j++) chords.push([mid(ds[i]), mid(ds[j])]); };
+  const roadEdges = (g) => g.edges.map((li) => (li + rot) % 4);
+  const singles = [];
+  for (const g of kind.roadGroups) {
+    if (g.edges.length === 2) pairs(roadEdges(g)); else singles.push(roadEdges(g)[0]);
+  }
+  for (const g of kind.cityGroups) if (g.edges.length >= 2) pairs(roadEdges(g));
+  if (singles.length >= 2) pairs(singles); // 交差点: 中央で道どうしがつながる
+  else if (singles.length === 1 && !kind.cloister && kind.cityGroups.length) {
+    chords.push([mid(singles[0]), mid(roadEdges(kind.cityGroups[0])[0])]); // 道が都市に入って止まる
+  }
+  // 修道院で止まる道は草原を分けない
+  const splits = (p, q) => chords.some(([a, b]) => {
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    const inP = 2 * p + 1 > lo && 2 * p + 1 < hi, inQ = 2 * q + 1 > lo && 2 * q + 1 < hi;
+    return inP !== inQ;
+  });
+  for (let p = 0; p < 8; p++) for (let q = p + 1; q < 8; q++) {
+    if (exists(p) && exists(q) && !splits(p, q)) uni(p, q);
+  }
   const corners = [[1, 2], [3, 4], [5, 6], [7, 0]];
   const touchEvents = []; // { point, cityGroupIdx }
   for (const [p, q] of corners) {
     const ep = exists(p), eq = exists(q);
-    if (ep && eq) uni(p, q);
-    else if (ep && !eq) touchEvents.push([p, cityGroupAt[Math.floor(q / 2)]]);
+    if (ep && !eq) touchEvents.push([p, cityGroupAt[Math.floor(q / 2)]]);
     else if (eq && !ep) touchEvents.push([q, cityGroupAt[Math.floor(p / 2)]]);
   }
   const rootToRegion = new Map();
@@ -488,10 +509,9 @@ class Game {
       const key = fieldKey(x, y, ri);
       const meta = this.dsu.meta_(key);
       if (meta.meeples.length === 0) {
-        const pts = region.points.map((p) => POINT_COORD[p]);
-        const ax = pts.reduce((s, p) => s + p[0], 0) / pts.length;
-        const ay = pts.reduce((s, p) => s + p[1], 0) / pts.length;
-        options.push({ key, type: 'field', anchor: [ax, ay] });
+        // 区画の端の点を少し内側へ（平均だと都市・道の駒と重なることがある）
+        const [px, py] = POINT_COORD[region.points[0]];
+        options.push({ key, type: 'field', anchor: [px * 0.8 + 0.1, py * 0.8 + 0.1] });
       }
     });
     return options;
@@ -501,10 +521,10 @@ class Game {
     const player = this.currentPlayer;
     if (this.players[player].meeples <= 0) return false;
     if (option.type === 'cloister') {
-      this.cloisters.get(tileKey(x, y)).meeple = { player };
+      this.cloisters.get(tileKey(x, y)).meeple = { player, x, y, anchor: option.anchor };
     } else {
       const meta = this.dsu.meta_(option.key);
-      meta.meeples.push({ player });
+      meta.meeples.push({ player, x, y, anchor: option.anchor });
     }
     this.players[player].meeples--;
     soundMeeple();
@@ -840,36 +860,13 @@ function fitView() {
 }
 
 function meepleInfoForRender() {
-  // 盤面の各タイルに置かれた駒の一覧（表示用）を、現在の DSU から作る
-  const map = new Map(); // tileKey -> [{anchor, player}]
+  // 置いた駒を、置いたタイルの上にだけ描く（tileKey -> [{anchor, player}]）
+  const map = new Map();
   if (!game) return map;
-  for (const [key, tile] of game.board) {
-    const [x, y] = key.split(',').map(Number);
-    const kind = TILE_KINDS[tile.kindIndex];
-    const info = analyzeTile(kind, tile.rot);
-    const list = [];
-    kind.cityGroups.forEach((g, gi) => {
-      const meta = game.dsu.meta_(cityKey(x, y, gi));
-      if (meta.meeples.length) { const abs = g.edges.map((li) => (li + tile.rot) % 4); list.push({ anchor: avgEdgeAnchor(abs), player: meta.meeples[0].player }); }
-    });
-    kind.roadGroups.forEach((g, gi) => {
-      const meta = game.dsu.meta_(roadKey(x, y, gi));
-      if (meta.meeples.length) { const abs = g.edges.map((li) => (li + tile.rot) % 4); list.push({ anchor: avgEdgeAnchor(abs), player: meta.meeples[0].player }); }
-    });
-    const c = game.cloisters.get(key);
-    if (c && c.meeple) list.push({ anchor: [0.5, 0.5], player: c.meeple.player });
-    info.regions.forEach((region, ri) => {
-      const meta = game.dsu.meta_(fieldKey(x, y, ri));
-      if (meta.meeples.length) {
-        const pts = region.points.map((p) => POINT_COORD[p]);
-        const ax = pts.reduce((s, p) => s + p[0], 0) / pts.length;
-        const ay = pts.reduce((s, p) => s + p[1], 0) / pts.length;
-        list.push({ anchor: [ax, ay], player: meta.meeples[0].player });
-      }
-    });
-    // 同じ機能に複数駒（合流）がある場合は代表 1 つだけ描く（簡略表示）
-    if (list.length) map.set(key, list);
-  }
+  const add = (m) => { const k = tileKey(m.x, m.y); if (!map.has(k)) map.set(k, []); map.get(k).push(m); };
+  const roots = new Set([...game.allNodeKeys].map((k) => game.dsu.find(k)));
+  for (const r of roots) for (const m of game.dsu.meta.get(r).meeples) add(m);
+  for (const c of game.cloisters.values()) if (c.meeple) add(c.meeple);
   return map;
 }
 
@@ -953,7 +950,7 @@ function handleTap(sx, sy) {
         const d = Math.hypot(lx - opt.anchor[0], ly - opt.anchor[1]);
         if (d < bestD) { bestD = d; best = opt; }
       }
-      if (best && bestD < 0.22) { commitMeeple(x, y, best); }
+      if (best) commitMeeple(x, y, best);
     }
     return;
   }
