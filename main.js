@@ -780,7 +780,7 @@ function drawTileArt(ctx, kindIndex, rot, px, py, size, opts = {}) {
 
   // 道
   ctx.strokeStyle = '#2a2a2a';
-  ctx.lineWidth = Math.max(2, size * 0.06);
+  ctx.lineWidth = Math.max(1, size * 0.015);
   ctx.lineCap = 'round';
   kind.roadGroups.forEach((g) => {
     const abs = g.edges.map((li) => (li + rot) % 4);
