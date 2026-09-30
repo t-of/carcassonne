@@ -782,19 +782,16 @@ function drawTileArt(ctx, kindIndex, rot, px, py, size, opts = {}) {
   kind.cityGroups.forEach((g) => {
     if (!g.pennant) return;
     const abs = g.edges.map((li) => (li + rot) % 4);
-    // 都市の隅（となりの辺も同じ都市ならその角）に、辺に沿って少し内側へ
+    // 都市の隅（となりの辺も同じ都市ならその角）に、ひし形の 2 つの頂点がタイルの 2 辺に触れるように置く
     const d = abs[0];
     const [cx, cy] = EDGE_CORNERS[d][abs.includes((d + 1) % 4) ? 1 : 0];
-    const [mx, my] = EDGE_MID[d];
-    const ax = cx + (mx - cx) * 0.3 + (0.5 - mx) * 0.15;
-    const ay = cy + (my - cy) * 0.3 + (0.5 - my) * 0.15;
-    // ひし形（正方形を 45 度回した形）
     const r = size * 0.07;
+    const ax = cx ? size - r : r, ay = cy ? size - r : r;
     ctx.beginPath();
-    ctx.moveTo(ax * size, ay * size - r);
-    ctx.lineTo(ax * size + r, ay * size);
-    ctx.lineTo(ax * size, ay * size + r);
-    ctx.lineTo(ax * size - r, ay * size);
+    ctx.moveTo(ax, ay - r);
+    ctx.lineTo(ax + r, ay);
+    ctx.lineTo(ax, ay + r);
+    ctx.lineTo(ax - r, ay);
     ctx.closePath();
     ctx.fill();
   });
