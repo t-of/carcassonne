@@ -779,8 +779,6 @@ function drawTileArt(ctx, kindIndex, rot, px, py, size, opts = {}) {
   });
 
   // 道
-  const roadDirCount = info.absEdges.filter((e) => e === 'R').length;
-  const passThrough = kind.roadGroups.length === 1 && kind.roadGroups[0].edges.length === 2 && roadDirCount === 2;
   ctx.strokeStyle = '#2a2a2a';
   ctx.lineWidth = Math.max(2, size * 0.06);
   ctx.lineCap = 'round';
@@ -793,7 +791,8 @@ function drawTileArt(ctx, kindIndex, rot, px, py, size, opts = {}) {
       ctx.stroke();
     }
   });
-  if (roadDirCount > 0 && !passThrough) {
+  // 黒点は交差点だけ（都市・修道院で止まる道には描かない）
+  if (kind.roadGroups.length >= 2) {
     ctx.fillStyle = '#2a2a2a';
     ctx.beginPath();
     ctx.arc(size * 0.5, size * 0.5, size * 0.1, 0, Math.PI * 2);
