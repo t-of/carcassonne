@@ -119,7 +119,8 @@ button { font: inherit; color: inherit; }
   gap: 10px;
 }
 .hud__tile { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: none; }
-.hud__tile canvas { border-radius: 6px; background: #fff; border: 1px solid rgba(255, 255, 255, 0.2); }
+.hud__label { font-size: 11px; color: var(--muted); }
+.hud__tile canvas { width: 104px; height: 104px; border-radius: 6px; background: #fff; border: 1px solid rgba(255, 255, 255, 0.2); }
 .hud__info { flex: 1; min-width: 0; }
 .message { margin: 0; font-size: 13px; }
 .deckcount { margin: 2px 0 0; font-size: 11px; color: var(--muted); }

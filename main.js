@@ -258,7 +258,7 @@ class Game {
       if (options.some((o) => o.rotations.length)) {
         this.deckPos++;
         this.pendingTile = { kindIndex, rot: options.find((o) => o.rotations.length).rotations[0] };
-        this.message = 'タイルを置く場所を選んでください';
+        this.message = '光っているマスをタップ（もう一度タップで回る）→「ここに置く」';
         return;
       }
       // どこにも置けない → 捨てて引き直し
@@ -603,6 +603,7 @@ const els = {
   message: document.getElementById('message'),
   deckCount: document.getElementById('deckCount'),
   skipBtn: document.getElementById('skipBtn'),
+  placeBtn: document.getElementById('placeBtn'),
   result: document.getElementById('result'),
   ranking: document.getElementById('ranking'),
   restartBtn: document.getElementById('restartBtn'),
@@ -610,6 +611,7 @@ const els = {
 
 let game = null;
 let previewRot = 0;
+let ghost = null; // 仮に置いたマス { x, y }。決定するまで向きを変えられる
 let view = { scale: 64, ox: 0, oy: 0 }; // scale = 1 タイルぶんの画面ピクセル数
 
 function serializeGame(g) {
@@ -713,6 +715,7 @@ function renderAll() {
   els.deckCount.textContent = String(game.deckOrder.length - game.deckPos + (game.pendingTile ? 1 : 0));
   els.message.textContent = game.message;
   els.skipBtn.hidden = !game.pendingOptions;
+  els.placeBtn.hidden = !ghost;
   drawPreview();
   drawBoard();
 }
@@ -770,7 +773,7 @@ function drawTileArt(ctx, kindIndex, rot, px, py, size, opts = {}) {
   if (roadDirCount > 0 && !passThrough) {
     ctx.fillStyle = '#2a2a2a';
     ctx.beginPath();
-    ctx.arc(size * 0.5, size * 0.5, size * 0.045, 0, Math.PI * 2);
+    ctx.arc(size * 0.5, size * 0.5, size * 0.1, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -880,7 +883,9 @@ function drawBoard() {
 
   // 置ける場所のハイライト
   if (game.pendingTile && !game.pendingOptions) {
-    const cells = game.currentValidCells(previewRot);
+    const seen = new Set();
+    const cells = [0, 1, 2, 3].flatMap((r) => game.currentValidCells(r))
+      .filter(([x, y]) => !seen.has(x + ',' + y) && seen.add(x + ',' + y));
     ctx.fillStyle = 'rgba(255, 211, 92, 0.45)';
     ctx.strokeStyle = 'rgba(255, 211, 92, 0.9)';
     ctx.lineWidth = 2;
@@ -889,6 +894,14 @@ function drawBoard() {
       const px = view.ox + x * size, py = view.oy + y * size;
       ctx.fillRect(px, py, size, size);
       ctx.strokeRect(px, py, size, size);
+    }
+    if (ghost) {
+      const size = view.scale;
+      const px = view.ox + ghost.x * size, py = view.oy + ghost.y * size;
+      drawTileArt(ctx, game.pendingTile.kindIndex, previewRot, px, py, size);
+      ctx.strokeStyle = PLAYER_COLORS[game.currentPlayer];
+      ctx.lineWidth = 3;
+      ctx.strokeRect(px + 1.5, py + 1.5, size - 3, size - 3);
     }
   }
 
@@ -990,16 +1003,36 @@ function handleTap(sx, sy) {
   }
 
   if (game.pendingTile) {
-    if (game.isValidPlacement(TILE_KINDS[game.pendingTile.kindIndex], previewRot, cx, cy)) {
-      commitPlacement(cx, cy, previewRot);
-    }
+    const same = ghost && ghost.x === cx && ghost.y === cy;
+    const rot = nextValidRot(cx, cy, same ? previewRot + 1 : previewRot);
+    if (rot == null) return;
+    ghost = { x: cx, y: cy };
+    previewRot = rot;
+    renderAll();
   }
+}
+
+// from から順に回して、そのマスに置ける最初の向き（なければ null）
+function nextValidRot(x, y, from) {
+  const kind = TILE_KINDS[game.pendingTile.kindIndex];
+  for (let i = 0; i < 4; i++) {
+    const r = (from + i) % 4;
+    if (game.isValidPlacement(kind, r, x, y)) return r;
+  }
+  return null;
+}
+
+function rotatePending() {
+  if (!game || !game.pendingTile || game.pendingOptions) return;
+  previewRot = ghost ? nextValidRot(ghost.x, ghost.y, previewRot + 1) : (previewRot + 1) % 4;
+  renderAll();
 }
 
 function commitPlacement(x, y, rot) {
   const kindIndex = game.pendingTile.kindIndex;
   game.placeTileOnBoard(x, y, rot, kindIndex);
   soundPlace();
+  ghost = null;
   const canPlaceMeeple = game.players[game.currentPlayer].meeples > 0;
   const options = canPlaceMeeple ? game.meepleOptions(x, y) : [];
   game.pendingTile = null;
@@ -1035,21 +1068,22 @@ function finishTurn() {
     showResultScreen();
     return;
   }
-  game.message = 'タイルを置く場所を選んでください（点線の場所をタップ）';
+  game.message = '光っているマスをタップ（もう一度タップで回る）→「ここに置く」';
   saveGame();
   renderAll();
 }
 
-els.rotateBtn.addEventListener('click', () => {
-  if (!game || !game.pendingTile || game.pendingOptions) return;
-  previewRot = (previewRot + 1) % 4;
-  renderAll();
+els.rotateBtn.addEventListener('click', rotatePending);
+els.preview.addEventListener('click', rotatePending);
+els.placeBtn.addEventListener('click', () => {
+  if (ghost && game.pendingTile) commitPlacement(ghost.x, ghost.y, previewRot);
 });
 els.skipBtn.addEventListener('click', skipMeeple);
 els.restartBtn.addEventListener('click', () => {
   try { localStorage.removeItem(STORE + 'game'); } catch { /* noop */ }
   els.result.hidden = true;
   els.setup.hidden = false;
+  ghost = null;
   viewInited = false;
   view = { scale: 64, ox: 0, oy: 0 };
 });
