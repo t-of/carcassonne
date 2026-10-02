@@ -68,6 +68,18 @@ button { font: inherit; color: inherit; }
 }
 .panel__lead { font-size: 16px; color: var(--muted); margin: 0; }
 .playercount { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+#roles { flex-direction: column; align-items: stretch; }
+.role-row { display: flex; gap: 8px; align-items: center; justify-content: center; }
+.role-row input {
+  font: inherit; color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 15px;
+  width: 9em;
+  min-width: 0;
+}
 .playercount button {
   font: inherit; color: inherit; cursor: pointer;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -116,6 +128,7 @@ button { font: inherit; color: inherit; }
   white-space: nowrap;
 }
 .player-chip.active { outline: 2px solid var(--accent); }
+.player-chip__name { max-width: 6em; overflow: hidden; text-overflow: ellipsis; }
 .track { flex: 1 1 0; min-height: 0; width: 100%; border-radius: 6px; background: #fbf8ef; }
 .side__tile {
   min-height: 0;

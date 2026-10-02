@@ -118,6 +118,17 @@ let gameRoles = [];
 function normalizeRoles(saved, n) {
   return Array.from({ length: n }, (_, i) => (saved[i] === 'cpu' ? 'cpu' : 'human'));
 }
+
+// ---- 名前（席ごと。空なら既定の色名のまま） ----
+const NAME_MAXLEN = 10;
+let gameNames = [];
+function normalizeNames(saved, n) {
+  return Array.from({ length: n }, (_, i) => (typeof saved[i] === 'string' ? saved[i].slice(0, NAME_MAXLEN) : ''));
+}
+function nameFor(i) {
+  const name = (gameNames[i] || '').trim();
+  return name || PLAYER_NAMES[i];
+}
 const isCpu = (i) => gameRoles[i] === 'cpu';
 const isCpuTurn = () => !!game && isCpu(game.currentPlayer);
 const isSpectating = () => !!game && gameRoles.slice(0, game.playerCount).every((r) => r === 'cpu');
@@ -243,7 +254,7 @@ const SAVE_VERSION = 2;
 function serializeGame(g) {
   return { v: SAVE_VERSION, playerCount: g.playerCount, deckOrder: g.deckOrder, log: g.log };
 }
-function saveGame() { if (game) { save('game', serializeGame(game)); save('roles', gameRoles); } }
+function saveGame() { if (game) { save('game', serializeGame(game)); save('roles', gameRoles); save('names', gameNames); } }
 
 // 保存データは「山札の並び」と「これまでの手」だけ。山札を同じ並びで引き直しながら
 // 同じ手を再現すれば、盤面・得点・つながりはすべて元どおりに計算し直せる。
@@ -297,9 +308,10 @@ function rebuildFromSave(data) {
   return g;
 }
 
-function startNewGame(playerCount, roles) {
+function startNewGame(playerCount, roles, names) {
   game = new Game(playerCount);
   gameRoles = normalizeRoles(roles || [], playerCount);
+  gameNames = normalizeNames(names || [], playerCount);
   syncDisplayScore();
   previewRot = game.pendingTile ? game.pendingTile.rot : 0;
   drawn = false;
@@ -328,7 +340,7 @@ function showResultScreen() {
     dot.className = 'rank-dot';
     dot.style.background = r.color;
     const label = document.createElement('span');
-    label.textContent = `${rank + 1}位 プレイヤー${r.i + 1}`;
+    label.textContent = `${rank + 1}位 ${nameFor(r.i)}`;
     const score = document.createElement('span');
     score.className = 'rank-score';
     score.textContent = `${r.score} 点`;
@@ -411,7 +423,11 @@ function renderScoreboard() {
     chip.className = 'player-chip' + (i === game.currentPlayer ? ' active' : '');
     const shownScore = displayScore[i] ?? p.score;
     chip.appendChild(meepleIcon(p.color, `駒 残り ${p.meeples}`));
-    chip.appendChild(document.createTextNode(`×${p.meeples}　${shownScore}点`));
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'player-chip__name';
+    nameSpan.textContent = nameFor(i);
+    chip.appendChild(nameSpan);
+    chip.appendChild(document.createTextNode(` ×${p.meeples}　${shownScore}点`));
     els.scoreboard.appendChild(chip);
   });
 }
@@ -670,7 +686,7 @@ function rotatePending() {
 
 const PLAYER_NAMES = ['赤', '青', '緑', '黄', '紫'];
 const TYPE_LABEL = { city: '都市', road: '道', cloister: '修道院', field: '草原' };
-const playerNames = (list) => list.map((i) => PLAYER_NAMES[i]).join('・');
+const playerNames = (list) => list.map((i) => nameFor(i)).join('・');
 
 // 1件ぶんの得点(players に points 点)を、得点ボードの駒が1マスずつ進むように見せる。
 // 1マスあたり 80〜120ms ほど。点が多いときは全体が長くなりすぎないよう1マスを縮める。
@@ -897,16 +913,27 @@ els.restartBtn.addEventListener('click', () => {
   ghost = null;
 });
 
-// ---- 人数・席（人/CPU）選び ----
+// ---- 人数・席（人/CPU・名前）選び ----
 let pendingCount = null;
 let pendingRoles = [];
+let pendingNames = [];
 function renderRolesPicker() {
   els.roles.replaceChildren(...pendingRoles.map((role, i) => {
+    const row = document.createElement('div');
+    row.className = 'role-row';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = NAME_MAXLEN;
+    input.placeholder = PLAYER_NAMES[i];
+    input.value = pendingNames[i] || '';
+    input.dataset.i = String(i);
+    input.setAttribute('aria-label', `${PLAYER_NAMES[i]}の名前`);
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.dataset.i = String(i);
-    btn.textContent = `${PLAYER_NAMES[i]}: ${role === 'cpu' ? 'CPU' : '人'}`;
-    return btn;
+    btn.textContent = role === 'cpu' ? 'CPU' : '人';
+    row.append(input, btn);
+    return row;
   }));
   els.roles.hidden = false;
   els.startBtn.hidden = false;
@@ -916,6 +943,7 @@ els.playercount.addEventListener('click', (e) => {
   if (!btn) return;
   pendingCount = Number(btn.dataset.n);
   pendingRoles = normalizeRoles(load('roles', []), pendingCount);
+  pendingNames = normalizeNames(load('names', []), pendingCount);
   renderRolesPicker();
 });
 els.roles.addEventListener('click', (e) => {
@@ -926,9 +954,15 @@ els.roles.addEventListener('click', (e) => {
   save('roles', pendingRoles);
   renderRolesPicker();
 });
+els.roles.addEventListener('input', (e) => {
+  const input = e.target.closest('input[data-i]');
+  if (!input) return;
+  pendingNames[Number(input.dataset.i)] = input.value.slice(0, NAME_MAXLEN);
+  save('names', pendingNames);
+});
 els.startBtn.addEventListener('click', () => {
   if (pendingCount == null) return;
-  startNewGame(pendingCount, pendingRoles);
+  startNewGame(pendingCount, pendingRoles, pendingNames);
 });
 
 // ---- 観戦（全員 CPU）の速さ・一時停止・設定に戻る ----
@@ -963,6 +997,7 @@ function continueSavedGame() {
   if (!saved || !saved.log || saved.v !== SAVE_VERSION) return;
   els.continueBtn.hidden = true; // 一度使ったら古い保存を指したままにしない
   gameRoles = normalizeRoles(load('roles', []), saved.playerCount);
+  gameNames = normalizeNames(load('names', []), saved.playerCount);
   game = rebuildFromSave(saved);
   syncDisplayScore();
   previewRot = game.pendingTile ? game.pendingTile.rot : 0;
