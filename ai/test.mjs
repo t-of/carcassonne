@@ -2,7 +2,7 @@
 // engine.js の動作を確かめる:  node ai/test.mjs
 'use strict';
 import assert from 'node:assert/strict';
-import { Game, TILE_KINDS } from '../engine.js';
+import { Game, TILE_KINDS, distributeState, rebuildFromDistributed } from '../engine.js';
 import { randomBot, greedyBot } from './bots.js';
 
 // 種を渡せば、何度作っても同じ山札になる
@@ -110,6 +110,34 @@ for (const seed of [11, 22, 33, 44]) {
     assert.ok(Array.isArray(e.tiles) && e.tiles.length > 0, '内訳にタイル位置がない');
     if (e.type === 'field') assert.ok(Array.isArray(e.cityTiles), '草原の内訳に数えた都市のタイルがない');
   }
+}
+
+// 通信対戦（準備段階）: 配る状態(distributeState) → JSON 往復 → 組み直し(rebuildFromDistributed) が、
+// 毎手ホストの Game と同じ盤・得点・残り駒・手番・今のタイル・残り枚数になるか（最後まで、何局か）
+function summarize(g) {
+  return {
+    board: [...g.board.entries()].sort(),
+    scores: g.players.map((p) => p.score),
+    meeples: g.players.map((p) => p.meeples),
+    currentPlayer: g.currentPlayer,
+    pendingKind: g.pendingTile ? g.pendingTile.kindIndex : null,
+    deckLeft: g.deckOrder.length - g.deckPos + (g.pendingTile ? 1 : 0),
+    gameOver: g.gameOver,
+  };
+}
+for (const seed of [5, 6, 7]) {
+  const g = new Game(2, { seed });
+  let turns = 0;
+  while (!g.gameOver && turns < 2000) {
+    const move = greedyBot(g);
+    assert.ok(move, `seed=${seed} ${turns}手目で置ける手が無い`);
+    g.applyMove(move);
+    turns++;
+    const roundTripped = JSON.parse(JSON.stringify(distributeState(g)));
+    const guest = rebuildFromDistributed(roundTripped);
+    assert.deepEqual(summarize(guest), summarize(g), `seed=${seed} ${turns}手目でゲスト側の組み立て直しがホストと合わない`);
+  }
+  assert.ok(g.gameOver, `seed=${seed} 対局が終わらなかった`);
 }
 
 console.log('ok: すべて通った');

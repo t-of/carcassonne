@@ -2,7 +2,7 @@
 
 // ルール・盤面・得点計算は engine.js（画面・音を持たない）。ここは見た目と入力だけ。
 import {
-  DSU, tileKey, TILE_KINDS, PLAYER_COLORS, Game, setCurvedRoads,
+  tileKey, TILE_KINDS, PLAYER_COLORS, Game, setCurvedRoads, rebuildFromLog,
 } from './engine.js';
 // CPU の相手（学習の自己対局と同じ greedyBot）。ai/bots.js は Node からも import される、共通の 1 か所。
 import { greedyBot } from './ai/bots.js';
@@ -256,54 +256,11 @@ function serializeGame(g) {
 }
 function saveGame() { if (game) { save('game', serializeGame(game)); save('roles', gameRoles); save('names', gameNames); } }
 
-// 保存データは「山札の並び」と「これまでの手」だけ。山札を同じ並びで引き直しながら
-// 同じ手を再現すれば、盤面・得点・つながりはすべて元どおりに計算し直せる。
+// 保存データは「山札の並び」と「これまでの手」だけ。組み立て直し本体は engine.js の rebuildFromLog
+// （通信対戦のゲスト側の組み立て直しとも共通にするため）。ここでは再生中は音を止める処理だけ足す。
 function rebuildFromSave(data) {
   replaying = true;
-  const g = Object.create(Game.prototype);
-  g.playerCount = data.playerCount;
-  g.players = Array.from({ length: data.playerCount }, (_, i) => ({ color: PLAYER_COLORS[i], score: 0, meeples: 7 }));
-  g.currentPlayer = 0;
-  g.board = new Map();
-  g.frontierSet = new Map();
-  g.cloisters = new Map();
-  g.dsu = new DSU();
-  g.gameOver = false;
-  g.finalRanking = null;
-  g.deckOrder = data.deckOrder;
-  g.deckPos = 0;
-  g.log = [];
-  g.pendingTile = null;
-  g.pendingOptions = null;
-  g.message = '';
-  g.events = [];
-  g.rngState = null; // 保存データの山札をそのまま使うので、以後の乱数は使わない
-
-  const startIdx = TILE_KINDS.findIndex((k) => k.start);
-  g.placeTileOnBoard(0, 0, 0, startIdx, { silent: true });
-
-  for (const entry of data.log) {
-    g.drawNext(); // このタイミングで捨てられたタイルも同じ順で再現される
-    if (!g.pendingTile) break; // 保存データがおかしいときの保険
-    g.placeTileOnBoard(entry.x, entry.y, entry.rot, g.pendingTile.kindIndex);
-    g.pendingTile = null;
-    g.log.push(entry);
-    if (entry.pending) {
-      // 駒を置くか決める前で止まっている手（最後の 1 手だけ）
-      g.pendingOptions = { x: entry.x, y: entry.y, options: g.players[g.currentPlayer].meeples > 0 ? g.meepleOptions(entry.x, entry.y) : [] };
-      g.message = MSG_MEEPLE;
-      replaying = false;
-      return g;
-    }
-    if (entry.meepleKey != null) {
-      const opt = g.meepleOptions(entry.x, entry.y).find((o) => o.key === entry.meepleKey);
-      if (opt) g.placeMeeple(entry.x, entry.y, opt);
-    }
-    g.scoreAround(entry.x, entry.y);
-    g.currentPlayer = (g.currentPlayer + 1) % g.playerCount;
-  }
-  g.events = [];
-  g.drawNext();
+  const g = rebuildFromLog(data);
   replaying = false;
   return g;
 }
@@ -781,9 +738,28 @@ const MSG_DRAW = '「タイルを引く」を押してください';
 let drawn = false; // この手番のタイルを引いたか（引くまでは絵を伏せる）
 let notice = '';   // 前の手番で入った点の知らせ
 
+// ルールを書き換える操作（タイルを置く・駒を置く/置かない・次を引く）は、必ずここを通す
+// （通信対戦の送り口をここ1つにまとめるため。段階1の今はまだ送らず、その場で engine を呼ぶだけ）。
+// CPU の手も commitPlacement/commitMeeple/skipMeeple を使うので、ここを通る。
+// 端末ごとの見た目の状態（選んでいる位置・回転の途中・ゴースト・drawn）はここに入れない。
+function act(name, args) {
+  switch (name) {
+    case 'place': { const [x, y, rot] = args; game.placeTileOnBoard(x, y, rot, game.pendingTile.kindIndex); return; }
+    case 'meeple': {
+      const [key] = args;
+      const opt = game.pendingOptions.options.find((o) => o.key === key);
+      if (opt) game.placeMeeple(game.pendingOptions.x, game.pendingOptions.y, opt);
+      return;
+    }
+    case 'skip': return; // 駒を置かない: engine 側に変える状態はない（finishTurn が共通で進める）
+    case 'draw': game.drawNext(); return;
+    default: throw new Error(`unknown act: ${name}`);
+  }
+}
+
 function commitPlacement(x, y, rot) {
   const kindIndex = game.pendingTile.kindIndex;
-  game.placeTileOnBoard(x, y, rot, kindIndex);
+  act('place', [x, y, rot]);
   soundPlace();
   ghost = null;
   const canPlaceMeeple = game.players[game.currentPlayer].meeples > 0;
@@ -801,7 +777,7 @@ function commitPlacement(x, y, rot) {
 }
 
 function commitMeeple(x, y, option) {
-  game.placeMeeple(x, y, option);
+  act('meeple', [option.key]);
   soundMeeple();
   game.log[game.log.length - 1].meepleKey = option.key;
   finishTurn();
@@ -809,6 +785,7 @@ function commitMeeple(x, y, option) {
 
 function skipMeeple() {
   if (!game.pendingOptions) return;
+  act('skip', []);
   finishTurn();
 }
 
@@ -827,7 +804,7 @@ async function finishTurn() {
     notice = '';
   }
   game.currentPlayer = (game.currentPlayer + 1) % game.playerCount;
-  game.drawNext();
+  act('draw', []);
   previewRot = game.pendingTile ? game.pendingTile.rot : 0;
   drawn = false;
   if (!game.pendingTile && game.gameOver) {

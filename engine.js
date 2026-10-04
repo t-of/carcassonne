@@ -715,6 +715,79 @@ export class Game {
   }
 }
 
+// ================================================================
+// 保存データ・通信対戦で配る状態（1人1台の通信対戦の段階1の準備。ここではまだ送らない）
+// ================================================================
+
+// 保存データ（「山札の並び」と「これまでの手」）から Game を丸ごと組み立て直す。
+// 山札を同じ並びで引き直しながら同じ手を再現すれば、盤面・得点・つながりはすべて元どおりに計算し直せる。
+// main.js の rebuildFromSave（つづきから・1手戻す用）と、下の rebuildFromDistributed（通信対戦のゲスト用）が呼ぶ。
+export function rebuildFromLog(data) {
+  const g = Object.create(Game.prototype);
+  g.playerCount = data.playerCount;
+  g.players = Array.from({ length: data.playerCount }, (_, i) => ({ color: PLAYER_COLORS[i], score: 0, meeples: 7 }));
+  g.currentPlayer = 0;
+  g.board = new Map();
+  g.frontierSet = new Map();
+  g.cloisters = new Map();
+  g.dsu = new DSU();
+  g.gameOver = false;
+  g.finalRanking = null;
+  g.deckOrder = data.deckOrder;
+  g.deckPos = 0;
+  g.log = [];
+  g.pendingTile = null;
+  g.pendingOptions = null;
+  g.message = '';
+  g.events = [];
+  g.rngState = null; // 保存データの山札をそのまま使うので、以後の乱数は使わない
+
+  const startIdx = TILE_KINDS.findIndex((k) => k.start);
+  g.placeTileOnBoard(0, 0, 0, startIdx, { silent: true });
+
+  for (const entry of data.log) {
+    g.drawNext(); // このタイミングで捨てられたタイルも同じ順で再現される
+    if (!g.pendingTile) break; // 保存データがおかしいときの保険
+    g.placeTileOnBoard(entry.x, entry.y, entry.rot, g.pendingTile.kindIndex);
+    g.pendingTile = null;
+    g.log.push(entry);
+    if (entry.pending) {
+      // 駒を置くか決める前で止まっている手（最後の1手だけ）
+      g.pendingOptions = { x: entry.x, y: entry.y, options: g.players[g.currentPlayer].meeples > 0 ? g.meepleOptions(entry.x, entry.y) : [] };
+      g.message = '駒を置く点をタップ（置かないなら「駒を置かない」）';
+      return g;
+    }
+    if (entry.meepleKey != null) {
+      const opt = g.meepleOptions(entry.x, entry.y).find((o) => o.key === entry.meepleKey);
+      if (opt) g.placeMeeple(entry.x, entry.y, opt);
+    }
+    g.scoreAround(entry.x, entry.y);
+    g.currentPlayer = (g.currentPlayer + 1) % g.playerCount;
+  }
+  g.events = [];
+  g.drawNext();
+  return g;
+}
+
+// 通信対戦（ホスト方式）でゲストに配る状態。山札のまだ引いていない部分はネタバレになるので入れない。
+// drawn はここまでに引いた山札の中身（置けずに捨てた札も含む。deckOrder.slice(0, deckPos) と同じ）。
+export function distributeState(g) {
+  return {
+    playerCount: g.playerCount,
+    drawn: g.deckOrder.slice(0, g.deckPos),
+    deckTotal: g.deckOrder.length,
+    log: g.log,
+  };
+}
+
+// distributeState() が作った状態から、ゲスト側で描くだけの Game を組み立て直す。
+// まだ引いていない札はダミー（0番のタイル）で埋める。ゲストはホストが配った所までしか進めないので、
+// このダミーに実際に触れることはない（捨て札の引き直しも drawn の範囲内だけで終わる）。
+export function rebuildFromDistributed(state) {
+  const filler = new Array(Math.max(0, state.deckTotal - state.drawn.length)).fill(0);
+  return rebuildFromLog({ playerCount: state.playerCount, deckOrder: state.drawn.concat(filler), log: state.log });
+}
+
 // ---- 駒を置く位置 ----
 // 道はその線の中点。都市・草原は、その区画の中で縁（ほかの区画・道・修道院・タイルの端）から一番遠い点。
 // タイルを細かい升目に分けて求める。種類と向きごとに 1 回だけ計算する。
