@@ -35,6 +35,10 @@
 </head>
 <body>
   <main class="app">
+    <div class="host-gone" id="hostGoneBar" hidden>
+      <span>ホストが切れました。</span>
+      <button class="pill pill--accent" id="hostGoneBtn">代わりに進める</button>
+    </div>
     <header class="bar">
       <h1 class="bar__title">carcassonne</h1>
       <div class="bar__actions">
@@ -59,6 +63,7 @@
           <button class="pill pill--accent" id="startBtn" hidden>はじめる</button>
           <button class="pill pill--accent" id="continueBtn" hidden>つづきから</button>
           <button class="pill" id="onlineBtn">みんなのスマホで</button>
+          <button class="pill" id="onlineResumeBtn" hidden>部屋に戻る</button>
         </div>
 
         <!-- 通信対戦: 名前 -->
@@ -125,6 +130,7 @@
                 <span class="room-code room-code--small" id="onlineCodeTag"></span>
                 <button class="pill" id="onlineLeaveBtn">部屋を出る</button>
               </div>
+              <div class="hud__buttons" id="onlineSubBar" hidden></div>
               <p id="notice" class="notice" hidden></p>
               <p id="message" class="message"></p>
               <p class="deckcount">山札 残り <span id="deckCount">0</span> 枚</p>
@@ -154,7 +160,7 @@
       <div id="result" class="panel" hidden>
         <p class="panel__lead">結果</p>
         <ol id="ranking" class="ranking"></ol>
-        <button class="pill pill--accent" id="restartBtn">もう一度遊ぶ</button>
+        <div class="hud__buttons" id="resultActions"></div>
       </div>
     </section>
 

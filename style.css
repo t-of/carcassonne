@@ -31,6 +31,12 @@ button { font: inherit; color: inherit; }
     max(12px, env(safe-area-inset-bottom))
     max(12px, env(safe-area-inset-left));
 }
+.host-gone {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 12px; border-radius: 12px; margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid var(--accent);
+  font-size: 13px;
+}
 .bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .bar__title { margin: 0; font-size: 18px; }
 .bar__actions { display: flex; gap: 8px; }
