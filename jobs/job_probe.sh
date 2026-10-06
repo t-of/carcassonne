@@ -10,4 +10,5 @@
 cd "$SLURM_SUBMIT_DIR"; mkdir -p logs
 # 使い捨ての作業フォルダで 1 世代だけ（minutes 0.01 → 1 世代回って止まる）。model.json は書き換えない
 rm -rf runs/probe
+export PATH=$HOME/node-v22.11.0-linux-x64/bin:$HOME/opt/node/bin:$PATH
 node ai/train.mjs --dir runs/probe --out runs/probe/model.json --minutes 0.01 --workers ${SLURM_NTASKS:-64} --games 128 --arena-games 64 --ref-games 64 "$@"

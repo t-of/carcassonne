@@ -11,4 +11,5 @@
 name=${1:?名前}; min=${2:?分}; shift 2
 cd "$SLURM_SUBMIT_DIR"; mkdir -p logs runs
 # 世代の途中で時間切れにならないよう、学習側の持ち時間は枠より 15 分短くする
+export PATH=$HOME/node-v22.11.0-linux-x64/bin:$HOME/opt/node/bin:$PATH
 node ai/train.mjs --dir runs/$name --minutes $((min - 15)) --workers ${SLURM_NTASKS:-64} "$@"
