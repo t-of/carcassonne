@@ -51,7 +51,7 @@ function selfplay({ net, seed, iters, greedyRate, randomRate }) {
 }
 
 // 対局: a が先手か後手かを seatA で決める。a から見た点差を返す
-function match({ a, b, seed, iters, seatA }) {
+export function match({ a, b, seed, iters, seatA }) {
   const rng = mulberry32(seed);
   const game = new Game(2, { seed });
   const bots = seatA === 0 ? [botOf(a, iters), botOf(b, iters)] : [botOf(b, iters), botOf(a, iters)];
@@ -73,12 +73,12 @@ if (!isMainThread) {
       parentPort.postMessage({ id: job.id, result: r });
     } catch (e) { parentPort.postMessage({ id: job.id, error: e.stack || String(e) }); }
   });
-} else {
+} else if (process.argv[1] === SELF) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
 // ---- ワーカーの束 ----
-function makePool(n) {
+export function makePool(n) {
   const workers = Array.from({ length: n }, () => new Worker(SELF));
   const pending = new Map();
   let nextId = 0;
