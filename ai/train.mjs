@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // 学習する CPU を育てる道具。同じコマンドを打てば作業フォルダの続きから進む。
 //   node ai/train.mjs --dir .train/run1 --minutes 480 --workers 4
+// 持ち時間でなく読む回数で打つので、マシンの速さが違っても同じ条件になる（--self-iters / --arena-iters）。
 // 1 世代 = 自己対局（いまの最良の網を使う searchBot と貪欲を混ぜる）で局面を集める → 網を学習
-//        → 候補の網 vs 最良（なければ手書きの評価）を同じ持ち時間で対局 → 勝ち越したら最良にして ai/model.json へ書く。
+//        → 候補の網 vs 最良（なければ手書きの評価）を同じ読む回数（--arena-iters）で対局 → 勝ち越したら最良にして ai/model.json へ書く
+//        → 最良の網 vs 手書きの探索を --ref-games 局打って勝率を log に出す。
 // 作業フォルダ: state.json（世代・履歴） best.json cand.json（網） buffer.x / buffer.y（集めた局面。新しい方から --buffer 件まで残す）
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,13 +29,13 @@ function mulberry32(seed) {
 }
 
 // ---- 1 局ぶんの仕事（ワーカー側） ----
-const botOf = (net, timeMs) => (g, rng) => searchBot(g, net ? { timeMs, evaluate: netEvaluate(net) } : { timeMs }, rng);
+const botOf = (net, iters) => (g, rng) => searchBot(g, net ? { iters, evaluate: netEvaluate(net) } : { iters }, rng);
 
 // 自己対局: 各手番の局面を両者の向きで記録し、終局後に「最後の点差 − そのときの点差」を目標にする。
-function selfplay({ net, seed, timeMs, greedyRate, randomRate }) {
+function selfplay({ net, seed, iters, greedyRate, randomRate }) {
   const rng = mulberry32(seed);
   const game = new Game(2, { seed });
-  const bots = [0, 1].map(() => (rng() < greedyRate ? greedyBot : botOf(net, timeMs)));
+  const bots = [0, 1].map(() => (rng() < greedyRate ? greedyBot : botOf(net, iters)));
   const xs = [], now = [];
   while (!game.gameOver) {
     for (let me = 0; me < 2; me++) { xs.push(features(game, me)); now.push(game.players[me].score - game.players[1 - me].score); }
@@ -49,10 +51,10 @@ function selfplay({ net, seed, timeMs, greedyRate, randomRate }) {
 }
 
 // 対局: a が先手か後手かを seatA で決める。a から見た点差を返す
-function match({ a, b, seed, timeMs, seatA }) {
+function match({ a, b, seed, iters, seatA }) {
   const rng = mulberry32(seed);
   const game = new Game(2, { seed });
-  const bots = seatA === 0 ? [botOf(a, timeMs), botOf(b, timeMs)] : [botOf(b, timeMs), botOf(a, timeMs)];
+  const bots = seatA === 0 ? [botOf(a, iters), botOf(b, iters)] : [botOf(b, iters), botOf(a, iters)];
   while (!game.gameOver) {
     const m = bots[game.currentPlayer](game, rng);
     if (!m) break;
@@ -155,7 +157,7 @@ async function main() {
   const arg = (name, def) => { const i = process.argv.indexOf(`--${name}`); if (i < 0) return def; return typeof def === 'number' ? Number(process.argv[i + 1]) : process.argv[i + 1]; };
   const dir = path.resolve(arg('dir', '.train/run'));
   const minutes = arg('minutes', 60), workers = arg('workers', 4);
-  const games = arg('games', 120), selfMs = arg('self-ms', 30), arenaMs = arg('arena-ms', 100), arenaGames = arg('arena-games', 60);
+  const games = arg('games', 512), selfIters = arg('self-iters', 6), arenaIters = arg('arena-iters', 12), arenaGames = arg('arena-games', 400), refGames = arg('ref-games', 200);
   const adopt = arg('adopt', 0.55), epochs = arg('epochs', 4), lr = arg('lr', 1e-3), bufMax = arg('buffer', 150000);
   const greedyRate = arg('greedy-rate', 0.15), randomRate = arg('random-rate', 0.03);
   const out = path.resolve(arg('out', path.join(path.dirname(SELF), 'model.json')));
@@ -183,7 +185,7 @@ async function main() {
     const gen = ++state.gen;
     // 1. 自己対局
     const bj = best ? toJSON(best) : null;
-    const rs = await Promise.all(Array.from({ length: games }, (_, i) => pool.run({ kind: 'selfplay', net: bj, seed: gen * 100000 + i, timeMs: selfMs, greedyRate, randomRate })));
+    const rs = await Promise.all(Array.from({ length: games }, (_, i) => pool.run({ kind: 'selfplay', net: bj, seed: gen * 100000 + i, iters: selfIters, greedyRate, randomRate })));
     const addN = rs.reduce((s, r) => s + r.Y.length, 0);
     const nx = new Float32Array(X.length + addN * FEATURE_DIM), ny = new Float32Array(Y.length + addN);
     nx.set(X); ny.set(Y);
@@ -198,7 +200,7 @@ async function main() {
     writeJson('cand.json', toJSON(cand));
     // 3. 対局（候補 vs 最良。同じ山で先後を入れ替える）
     const cj = toJSON(cand);
-    const diffs = (await Promise.all(Array.from({ length: arenaGames }, (_, i) => pool.run({ kind: 'match', a: cj, b: bj, seed: 7000000 + gen * 1000 + (i >> 1), timeMs: arenaMs, seatA: i & 1 })))).map((r) => r.diff);
+    const diffs = (await Promise.all(Array.from({ length: arenaGames }, (_, i) => pool.run({ kind: 'match', a: cj, b: bj, seed: 7000000 + gen * 1000 + (i >> 1), iters: arenaIters, seatA: i & 1 })))).map((r) => r.diff);
     const score = diffs.reduce((s, d) => s + (d > 0 ? 1 : d === 0 ? 0.5 : 0), 0) / diffs.length;
     const mean = diffs.reduce((s, d) => s + d, 0) / diffs.length;
     const ok = score >= adopt;
@@ -207,8 +209,16 @@ async function main() {
       writeJson('best.json', toJSON(best));
       fs.writeFileSync(out, JSON.stringify(toJSON(best)));
     }
+    // 4. 物差し: 最良の網 vs 手書きの探索（search）。強くなっているかを外から見る
+    let ref = '';
+    if (best && refGames > 0) {
+      const rj = toJSON(best);
+      const rd = (await Promise.all(Array.from({ length: refGames }, (_, i) => pool.run({ kind: 'match', a: rj, b: null, seed: 9000000 + gen * 1000 + (i >> 1), iters: arenaIters, seatA: i & 1 })))).map((r) => r.diff);
+      ref = +(rd.reduce((s, d) => s + (d > 0 ? 1 : d === 0 ? 0.5 : 0), 0) / rd.length).toFixed(3);
+      log(`世代 ${gen}: 最良の網 vs 手書きの探索 ${refGames} 局 勝率 ${(ref * 100).toFixed(0)}%`);
+    }
     genMs = Date.now() - g0;
-    state.history.push({ gen, loss: +loss.end.toFixed(4), base: +loss.base.toFixed(4), winRate: +score.toFixed(3), meanDiff: +mean.toFixed(2), adopted: ok, sec: Math.round(genMs / 1000) });
+    state.history.push({ gen, loss: +loss.end.toFixed(4), base: +loss.base.toFixed(4), winRate: +score.toFixed(3), meanDiff: +mean.toFixed(2), adopted: ok, vsSearch: ref, sec: Math.round(genMs / 1000) });
     writeJson('state.json', state);
     log(`世代 ${gen}: 候補の勝率 ${(score * 100).toFixed(0)}%（平均点差 ${mean.toFixed(1)}）→ ${ok ? '採用（' + path.relative(process.cwd(), out) + ' に書いた）' : '見送り'}  ${Math.round(genMs / 1000)} 秒`);
   }

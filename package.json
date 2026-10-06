@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node ai/test.mjs"
+    "test": "node ai/test.mjs",
+    "pack:hakusan": "bash tools/pack-hakusan.sh"
   }
 }

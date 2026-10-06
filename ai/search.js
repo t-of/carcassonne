@@ -43,6 +43,7 @@ export function searchBot(game, opts = {}, rng = Math.random) {
   if (moves.length <= 1) return moves[0] || null;
   const me = game.currentPlayer;
   // 差し替え口: opts.evaluate(game, me) → 自分から見た点差っぽい数（大きいほど良い）、
+  // opts.iters を渡すと時間でなく読む回数（全候補を 1 巡 = 1 回）で打ち切る。マシンの速さに結果が左右されない。
   // opts.prior(game, moves) → 各手の事前の点数配列（大きいほど有望。省略は貪欲の 1 手評価）。学習した網はここへ。
   const evalFn = p.evaluate || defaultEvaluate;
   const prior = p.prior ? p.prior(game, moves) : greedyValues(game, moves);
@@ -72,7 +73,7 @@ export function searchBot(game, opts = {}, rng = Math.random) {
       sum[k] += evalFn(g, me, p);
     }
     rounds++;
-  } while (now() < deadline);
+  } while (p.iters ? rounds < p.iters : now() < deadline);
   let best = 0;
   for (let i = 1; i < n; i++) if (sum[i] > sum[best]) best = i;
   return moves[best];
