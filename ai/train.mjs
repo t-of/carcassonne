@@ -154,7 +154,7 @@ function fit(net, X, Y, { epochs, lr, batch = 128, l2 = 1e-5, log }) {
 
 // ---- 本体 ----
 async function main() {
-  const arg = (name, def) => { const i = process.argv.indexOf(`--${name}`); if (i < 0) return def; return typeof def === 'number' ? Number(process.argv[i + 1]) : process.argv[i + 1]; };
+  const arg = (name, def) => { const i = process.argv.lastIndexOf(`--${name}`); if (i < 0) return def; return typeof def === 'number' ? Number(process.argv[i + 1]) : process.argv[i + 1]; };
   const dir = path.resolve(arg('dir', '.train/run'));
   const minutes = arg('minutes', 60), workers = arg('workers', 4);
   const games = arg('games', 512), selfIters = arg('self-iters', 6), arenaIters = arg('arena-iters', 12), arenaGames = arg('arena-games', 400), refGames = arg('ref-games', 200);
