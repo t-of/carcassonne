@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // CPU どうしを対局させて、勝率・平均得点・1局あたりの時間を出す。
 //   node ai/selfplay.mjs --games 1000 --a greedy --b random --seed 1
+//   node ai/selfplay.mjs --a learned:timeMs=200 --b search:timeMs=200   （学習した網。ai/train.mjs が ai/model.json を作る）
 // 先手を毎局入れ替えるので、勝率は先手有利を打ち消したもの。
 'use strict';
 import { Game } from '../engine.js';
 import { BOTS } from './bots.js';
 import { searchBot } from './search.js';
+import { fromJSON, netEvaluate } from './net.js';
+import fs from 'node:fs';
 
 const arg = (name, def) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -24,6 +27,12 @@ function resolve(name) {
   if (name.startsWith('search:')) {
     const o = Object.fromEntries(name.slice(7).split(',').map((kv) => { const [k, v] = kv.split('='); return [k, Number(v)]; }));
     BOTS[name] = (g, rng) => searchBot(g, o, rng);
+  }
+  // 「learned:timeMs=200」は学習した網（ai/model.json、--model で別のファイル）を評価に使う探索 CPU
+  if (name.startsWith('learned')) {
+    const o = Object.fromEntries(name.slice(8).split(',').filter(Boolean).map((kv) => { const [k, v] = kv.split('='); return [k, Number(v)]; }));
+    const evaluate = netEvaluate(fromJSON(JSON.parse(fs.readFileSync(arg('model', new URL('./model.json', import.meta.url).pathname), 'utf8'))));
+    BOTS[name] = (g, rng) => searchBot(g, { ...o, evaluate }, rng);
   }
   return BOTS[name];
 }

@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import { Game, TILE_KINDS, distributeState, rebuildFromDistributed } from '../engine.js';
 import { randomBot, greedyBot } from './bots.js';
 import { searchBot } from './search.js';
+import { features, FEATURE_DIM } from './features.js';
+import { createNet, forward, netEvaluate, toJSON, fromJSON } from './net.js';
 
 // 種を渡せば、何度作っても同じ山札になる
 {
@@ -151,6 +153,35 @@ for (const seed of [5, 6, 7]) {
     g.applyMove(move);
   }
   assert.ok(g.gameOver);
+}
+
+// 特徴: 長さが一定で有限、向きを入れ替えると点差の符号が逆になる。山札の並びを壊しても同じ値（順は見ない）
+{
+  const g = new Game(2, { seed: 5 });
+  for (let i = 0; i < 20; i++) g.applyMove(greedyBot(g));
+  const f0 = features(g, 0), f1 = features(g, 1);
+  assert.equal(f0.length, FEATURE_DIM);
+  assert.ok(f0.every(Number.isFinite), '特徴に有限でない値がある');
+  assert.ok(Math.abs(f0[0] + f1[0]) < 1e-6, '向きを入れ替えても点差の符号が逆にならない');
+  const h = g.clone();
+  h.deckOrder = h.deckOrder.slice(0, h.deckPos).concat(h.deckOrder.slice(h.deckPos).reverse());
+  assert.deepEqual(features(h, 0), f0, '山札の順で特徴が変わった');
+}
+
+// 網: JSON 往復で同じ出力。学習した網を入れた探索 CPU も合法手だけで決着まで打てる
+{
+  let s = 1;
+  const net = createNet(() => ((s = (s * 16807) % 2147483647) / 2147483647));
+  const x = features(new Game(2, { seed: 2 }), 0);
+  assert.ok(Number.isFinite(forward(net, x)));
+  assert.ok(Math.abs(forward(net, x) - forward(fromJSON(JSON.parse(JSON.stringify(toJSON(net)))), x)) < 1e-4, 'JSON 往復で出力が変わった');
+  const evaluate = netEvaluate(net);
+  const g = new Game(2, { seed: 4 });
+  while (!g.gameOver) {
+    const move = g.currentPlayer === 0 ? searchBot(g, { timeMs: 3, depth: 3, topK: 4, evaluate }) : greedyBot(g);
+    assert.ok(g.legalMoves().some((m) => m.x === move.x && m.y === move.y && m.rot === move.rot && m.meepleKey === move.meepleKey), '学習 CPU が合法でない手を返した');
+    g.applyMove(move);
+  }
 }
 
 console.log('ok: すべて通った');
