@@ -5,6 +5,7 @@
 'use strict';
 import { Game } from '../engine.js';
 import { BOTS } from './bots.js';
+import { searchBot } from './search.js';
 
 const arg = (name, def) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -17,6 +18,16 @@ const A = arg('a', 'greedy');
 const B = arg('b', 'random');
 const SEED = arg('seed', 1);
 
+// 「search:timeMs=200,depth=6」のように書くと、探索 CPU のパラメータをその場で変えられる。
+function resolve(name) {
+  if (BOTS[name]) return BOTS[name];
+  if (name.startsWith('search:')) {
+    const o = Object.fromEntries(name.slice(7).split(',').map((kv) => { const [k, v] = kv.split('='); return [k, Number(v)]; }));
+    BOTS[name] = (g, rng) => searchBot(g, o, rng);
+  }
+  return BOTS[name];
+}
+resolve(A); resolve(B);
 if (!BOTS[A] || !BOTS[B]) {
   console.error(`知らない CPU: --a/--b は ${Object.keys(BOTS).join(', ')} のどれか`);
   process.exit(1);

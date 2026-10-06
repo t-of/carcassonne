@@ -15,17 +15,22 @@ export function randomBot(game, rng = Math.random) {
 export function greedyBot(game, rng = Math.random) {
   const moves = game.legalMoves();
   if (!moves.length) return null;
+  const values = greedyValues(game, moves, rng);
+  let best = 0;
+  for (let i = 1; i < moves.length; i++) if (values[i] > values[best]) best = i;
+  return moves[best];
+}
+
+// 各手の貪欲な点数（その手の得点 ＋ 見込み）。探索の事前の点数にも使う。
+export function greedyValues(game, moves, rng = Math.random) {
   const player = game.currentPlayer;
-  let best = null, bestValue = -Infinity;
-  for (const move of moves) {
+  return moves.map((move) => {
     const after = game.clone();
     const before = after.players[player].score;
     after.applyMove(move);
     const gained = after.players[player].score - before;
-    const value = gained + estimatePotential(after, player) + rng() * 1e-6; // 同点は僅かな乱数で割る
-    if (value > bestValue) { bestValue = value; best = move; }
-  }
-  return best;
+    return gained + estimatePotential(after, player) + rng() * 1e-6; // 同点は僅かな乱数で割る
+  });
 }
 
 function estimatePotential(game, player) {
@@ -43,4 +48,11 @@ function estimatePotential(game, player) {
   return total * 0.5;
 }
 
-export const BOTS = { random: randomBot, greedy: greedyBot };
+import { searchBot } from './search.js';
+// search / search02 / search05: 1 手の考える時間（秒）違い。第 3 引数の rng は無視してよい。
+export const BOTS = {
+  random: randomBot, greedy: greedyBot,
+  search: (g, rng) => searchBot(g, { timeMs: 1000 }, rng),
+  search02: (g, rng) => searchBot(g, { timeMs: 200 }, rng),
+  search05: (g, rng) => searchBot(g, { timeMs: 500 }, rng),
+};

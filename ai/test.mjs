@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { Game, TILE_KINDS, distributeState, rebuildFromDistributed } from '../engine.js';
 import { randomBot, greedyBot } from './bots.js';
+import { searchBot } from './search.js';
 
 // 種を渡せば、何度作っても同じ山札になる
 {
@@ -138,6 +139,18 @@ for (const seed of [5, 6, 7]) {
     assert.deepEqual(summarize(guest), summarize(g), `seed=${seed} ${turns}手目でゲスト側の組み立て直しがホストと合わない`);
   }
   assert.ok(g.gameOver, `seed=${seed} 対局が終わらなかった`);
+}
+
+// 探索 CPU: 合法手だけを返し、決着まで打てる（短い持ち時間で 1 局。山札の順は見ない作りなので順を壊しても動く）
+{
+  const g = new Game(2, { seed: 9 });
+  while (!g.gameOver) {
+    const move = g.currentPlayer === 0 ? searchBot(g, { timeMs: 3, depth: 3, topK: 4 }) : greedyBot(g);
+    const legal = g.legalMoves();
+    assert.ok(legal.some((m) => m.x === move.x && m.y === move.y && m.rot === move.rot && m.meepleKey === move.meepleKey), '探索 CPU が合法でない手を返した');
+    g.applyMove(move);
+  }
+  assert.ok(g.gameOver);
 }
 
 console.log('ok: すべて通った');
