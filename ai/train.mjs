@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { Worker, isMainThread, parentPort } from 'node:worker_threads';
 import { Game } from '../engine.js';
 import { greedyBot } from './bots.js';
-import { searchBot } from './search.js';
+import { searchBot, defaultEvaluate } from './search.js';
 import { features, FEATURE_DIM } from './features.js';
 import { createNet, forward, toJSON, fromJSON, cloneNet, netEvaluate, SCALE } from './net.js';
 
@@ -31,14 +31,14 @@ function mulberry32(seed) {
 // ---- 1 局ぶんの仕事（ワーカー側） ----
 const botOf = (net, iters) => (g, rng) => searchBot(g, net ? { iters, evaluate: netEvaluate(net) } : { iters }, rng);
 
-// 自己対局: 各手番の局面を両者の向きで記録し、終局後に「最後の点差 − そのときの点差」を目標にする。
+// 自己対局: 各手番の局面を両者の向きで記録し、終局後に「最後の点差 − そのときの手書き評価」を目標にする（網は手書き評価への足し引きだけ覚える）。
 function selfplay({ net, seed, iters, greedyRate, randomRate }) {
   const rng = mulberry32(seed);
   const game = new Game(2, { seed });
   const bots = [0, 1].map(() => (rng() < greedyRate ? greedyBot : botOf(net, iters)));
   const xs = [], now = [];
   while (!game.gameOver) {
-    for (let me = 0; me < 2; me++) { xs.push(features(game, me)); now.push(game.players[me].score - game.players[1 - me].score); }
+    for (let me = 0; me < 2; me++) { xs.push(features(game, me)); now.push(defaultEvaluate(game, me)); }
     const moves = game.legalMoves();
     if (!moves.length) break;
     const m = rng() < randomRate ? moves[Math.floor(rng() * moves.length)] : bots[game.currentPlayer](game, rng);

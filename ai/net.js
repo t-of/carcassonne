@@ -1,12 +1,13 @@
 'use strict';
-// 小さな網（全結合・ReLU）。入力は features.js のベクトル、出力は「いまの点差から最後までに動く点差」を 30 で割った 1 つの数。
+// 小さな網（全結合・ReLU）。入力は features.js のベクトル、出力は「手書きの評価（defaultEvaluate）が最後の点差からどれだけ外れるか」を 30 で割った 1 つの数（残差）。
 // 重みは JSON { sizes, w: [層ごとの配列（[入力×出力] の行ごと）], b: [...] }。Node でもブラウザでも import できる（依存なし）。
 import { features, FEATURE_DIM } from './features.js';
+import { defaultEvaluate } from './search.js';
 
 export const SCALE = 30;
 export const HIDDEN = [64, 32];
 
-// 初期値は He 初期化、最後の層だけ小さく（最初は「点差が今のまま動かない」と読む）
+// 初期値は He 初期化、最後の層だけ小さく（最初は「手書きの評価のまま」と読む）
 export function createNet(rng = Math.random, hidden = HIDDEN) {
   const sizes = [FEATURE_DIM, ...hidden, 1];
   const w = [], b = [];
@@ -48,11 +49,11 @@ export function fromJSON(j) {
 }
 export const cloneNet = (net) => fromJSON(toJSON(net));
 
-// searchBot の evaluate に差し込む。me から見た「今の点差 ＋ 網が読む先の動き」。
+// searchBot の evaluate に差し込む。me から見た「手書きの評価 ＋ 網が読む残差」。網が 0 を出すうちは手書きと同じ強さ。
 export function netEvaluate(net) {
   const buf = new Float32Array(FEATURE_DIM);
   return (game, me) => {
     features(game, me, buf);
-    return buf[0] * 30 + forward(net, buf) * SCALE;
+    return defaultEvaluate(game, me) + forward(net, buf) * SCALE;
   };
 }
