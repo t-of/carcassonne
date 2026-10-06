@@ -41,7 +41,7 @@ tar xzf ~/hakusan-carcassonne.tar.gz
 
 コードを直して送り直しても、`runs/` と `logs/` は消えない（tar に入っていない）。
 
-## 3. probe（5 分。1 世代の時間と局数を測る）
+## 3. probe（20 分以内。1 世代の時間と局数を測る）
 
 ```sh
 cd ~/carcassonne
@@ -50,8 +50,8 @@ squeue -u $USER
 tail -f logs/carc-probe-*.out      # 止めるのは Ctrl+C
 ```
 
-既定は 1 世代 = 自己対局 512 局 + 候補 vs 最良 400 局 + 最良 vs 手書き探索 200 局。
-局数や読む回数を変えて測るときは引数を足す。例:
+probe は本番の約 1/4（自己対局 128 局 + 候補 vs 最良 64 局 + 最良 vs 手書き探索 64 局）で 1 世代回す。本番の既定は 512 + 400 + 200 局なので、本番の 1 世代 ≒ probe の時間 × 約 4。
+局数や読む回数を変えて測るときは引数を足す（後ろの引数が勝つ）。例:
 
 ```sh
 sbatch jobs/job_probe.sh --games 256 --arena-games 200 --ref-games 100 --self-iters 6 --arena-iters 12
@@ -71,7 +71,7 @@ sbatch -t 12:00:00 jobs/job_train.sh run1 720    # 名前 run1、720 分（= 枠
 
 ### probe の後に局数をどう決めるか
 
-probe のログ最後の「N 秒」が 1 世代の時間。64 コアでの目安は 1 世代 5〜15 分。
+probe のログ最後の「N 秒」× 約 4 が、本番の 1 世代の時間。64 コアでの目安は 1 世代 5〜15 分。
 
 - 1 世代が 15 分を超える → `--games`・`--arena-games`・`--ref-games` を同じ割合で減らす（採用の判定は 400 局を割らないほうがよいので、先に `--games` と `--ref-games` を減らす）。
 - 5 分に満たない → `--games` を増やす（局面が増えて網が育つ）。
