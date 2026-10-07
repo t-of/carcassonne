@@ -48,33 +48,77 @@ export function searchBot(game, opts = {}, rng = Math.random) {
   const evalFn = p.evaluate || defaultEvaluate;
   const prior = p.prior ? p.prior(game, moves) : greedyValues(game, moves);
   // 手数が多い（駒の置き方まで入れると 100 超）ので、事前の点数が上位 topK の手だけを読む。
+  // candidates:'diverse' は、さらに種類（置かない・草原・都市・道・修道院）ごとの最良の 1 手を必ず入れる。
   if (moves.length > p.topK) {
-    const order = moves.map((_, i) => i).sort((i, j) => prior[j] - prior[i]).slice(0, p.topK);
+    const idx = moves.map((_, i) => i).sort((i, j) => prior[j] - prior[i]);
+    const order = idx.slice(0, p.topK);
+    if (p.candidates === 'diverse') {
+      const seen = new Set(order.map((i) => kindOf(moves[i])));
+      for (const i of idx) { const t = kindOf(moves[i]); if (!seen.has(t)) { seen.add(t); order.push(i); } }
+    }
     moves = order.map((i) => moves[i]);
   }
   const n = moves.length;
   const left = game.deckOrder.slice(game.deckPos); // 種類と枚数だけ使う（順は毎回 shuffle で捨てる）
-  const sum = new Array(n).fill(0);
-  const deadline = now() + p.timeMs;
+  const sum = new Array(n).fill(0), cnt = new Array(n).fill(0);
+  const t0 = now();
   const base = game.clone();
-  let rounds = 0;
-  // 同じ山の並び（決定化）を全候補に使い、候補どうしの比べを公平にする
-  do {
-    const deck = shuffle(left, rng);
-    for (let k = 0; k < n; k++) {
-      const g = base.clone();
-      g.deckOrder = deck; g.deckPos = 0;
-      g.applyMove(moves[k]);
-      for (let d = 0; d < p.depth && !g.gameOver; d++) {
-        const m = rolloutMove(g, rng, p);
-        if (!m) break;
-        g.applyMove(m);
-      }
-      sum[k] += evalFn(g, me, p);
+  const depth = p.depth === 'end' ? Infinity : p.depth;
+  let steps = 0, samples = 0;
+  // 候補 k を 1 回読んで評価値を足す（deck は呼び出し側が混ぜた山）
+  const sample = (k, deck) => {
+    const g = base.clone();
+    g.deckOrder = deck; g.deckPos = 0;
+    g.applyMove(moves[k]); steps++;
+    for (let d = 0; d < depth && !g.gameOver; d++) {
+      const m = rolloutMove(g, rng, p);
+      if (!m) break;
+      g.applyMove(m); steps++;
     }
-    rounds++;
-  } while (p.iters ? rounds < p.iters : now() < deadline);
+    sum[k] += p.evalMode === 'final' && g.gameOver && !p.evaluate ? finalDiff(g, me) : evalFn(g, me, p);
+    cnt[k]++; samples++;
+  };
+  // 使った量の割合（0〜1）。budget は読みの手数、iters は 1 巡 = 全候補 1 回ずつ、なければ時間。
+  const used = () => (p.budget ? steps / p.budget : p.iters ? samples / (p.iters * n) : (now() - t0) / p.timeMs);
+  // 同じ山の並び（決定化）を候補に使い、候補どうしの比べを公平にする
+  if (p.rootPolicy === 'ucb') {
+    for (let k = 0; k < n; k++) sample(k, shuffle(left, rng));
+    while (used() < 1) {
+      const N = samples; let bk = 0, bv = -Infinity;
+      for (let k = 0; k < n; k++) { const v = sum[k] / cnt[k] + p.c * Math.sqrt(Math.log(N) / cnt[k]); if (v > bv) { bv = v; bk = k; } }
+      sample(bk, shuffle(left, rng));
+    }
+  } else {
+    let alive = moves.map((_, k) => k);
+    const stages = p.rootPolicy === 'halving' ? Math.max(1, Math.ceil(Math.log2(n))) : 1;
+    for (let s = 1; s <= stages; s++) {
+      do {
+        const deck = shuffle(left, rng);
+        for (const k of alive) sample(k, deck);
+      } while (used() < s / stages);
+      if (s < stages) {
+        alive.sort((i, j) => sum[j] / cnt[j] - sum[i] / cnt[i]);
+        alive = alive.slice(0, Math.ceil(alive.length / 2));
+      }
+    }
+    if (alive.length < n) { // 半減で残った手の中から選ぶ
+      let best = alive[0];
+      for (const k of alive) if (sum[k] / cnt[k] > sum[best] / cnt[best]) best = k;
+      return moves[best];
+    }
+  }
   let best = 0;
-  for (let i = 1; i < n; i++) if (sum[i] > sum[best]) best = i;
+  if (p.rootPolicy === 'ucb') { for (let i = 1; i < n; i++) if (sum[i] / cnt[i] > sum[best] / cnt[best]) best = i; }
+  else for (let i = 1; i < n; i++) if (sum[i] > sum[best]) best = i;
   return moves[best];
+}
+
+// 手の種類: 置かない 'N'、修道院 'M'、都市 'C'、道 'R'、草原 'F'
+function kindOf(m) { return m.meepleKey == null ? 'N' : m.meepleKey === 'M' ? 'M' : m.meepleKey.match(/[CRF]/)[0]; }
+
+// 最後まで読んだ局の最終の点差（ミープルの補正なし）
+function finalDiff(g, me) {
+  let opp = -Infinity;
+  for (let i = 0; i < g.players.length; i++) if (i !== me && g.players[i].score > opp) opp = g.players[i].score;
+  return g.players[me].score - opp;
 }

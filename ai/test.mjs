@@ -3,7 +3,7 @@
 'use strict';
 import assert from 'node:assert/strict';
 import { Game, TILE_KINDS, distributeState, rebuildFromDistributed } from '../engine.js';
-import { randomBot, greedyBot } from './bots.js';
+import { randomBot, greedyBot, greedyValues } from './bots.js';
 import { searchBot } from './search.js';
 import { features, FEATURE_DIM } from './features.js';
 import { createNet, forward, netEvaluate, toJSON, fromJSON } from './net.js';
@@ -182,6 +182,15 @@ for (const seed of [5, 6, 7]) {
     assert.ok(g.legalMoves().some((m) => m.x === move.x && m.y === move.y && m.rot === move.rot && m.meepleKey === move.meepleKey), '学習 CPU が合法でない手を返した');
     g.applyMove(move);
   }
+}
+
+// 既定のオプションの探索は、読み回数（iters）が同じなら、種が同じで同じ手を返す（変種のオプションを足しても既定の動きは変わらない）
+{
+  const g = new Game(2, { seed: 11 });
+  for (let i = 0; i < 6; i++) g.applyMove(greedyBot(g, () => 0.5));
+  const run = (o) => { let r = 1; const rng = () => (r = (r * 16807) % 2147483647) / 2147483647; return JSON.stringify(searchBot(g, { iters: 3, prior: (gg, mv) => greedyValues(gg, mv, () => 0.5), ...o }, rng)); };
+  assert.equal(run({}), run({}), '同じ種・同じ状態なのに探索の手が違う');
+  assert.equal(run({}), run({ candidates: 'top', rootPolicy: 'flat', evalMode: 'now', depth: 14 }), '既定の明示指定で動きが変わった');
 }
 
 console.log('ok: すべて通った');
