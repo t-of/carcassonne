@@ -49,7 +49,7 @@ function rolloutMove(game, rng, p) {
 export function searchBot(game, opts = {}, rng = Math.random) {
   const p = { ...DEFAULTS, ...opts };
   let moves = game.legalMoves();
-  if (moves.length <= 1) return moves[0] || null;
+  if (moves.length <= 1) return p.stats ? { moves, sum: [0], cnt: [1], alive: [true] } : moves[0] || null;
   const me = game.currentPlayer;
   // 差し替え口: opts.evaluate(game, me) → 自分から見た点差っぽい数（大きいほど良い）、
   // opts.iters を渡すと時間でなく読む回数（全候補を 1 巡 = 1 回）で打ち切る。マシンの速さに結果が左右されない。
@@ -70,6 +70,9 @@ export function searchBot(game, opts = {}, rng = Math.random) {
   const n = moves.length;
   const left = game.deckOrder.slice(game.deckPos); // 種類と枚数だけ使う（順は毎回 shuffle で捨てる）
   const sum = new Array(n).fill(0), cnt = new Array(n).fill(0);
+  let alive = null; // halving で最後まで残った候補（null は全部）
+  // opts.stats: 手を返さず、候補ごとの統計を返す（複数の Worker の結果を mergeStats で合わせるため）
+  const statsOf = () => ({ moves, sum, cnt, alive: moves.map((_, k) => !alive || alive.includes(k)) });
   const t0 = now();
   const base = game.clone();
   const depth = p.depth === 'end' ? Infinity : p.depth;
@@ -98,7 +101,7 @@ export function searchBot(game, opts = {}, rng = Math.random) {
       sample(bk, shuffle(left, rng));
     }
   } else {
-    let alive = moves.map((_, k) => k);
+    alive = moves.map((_, k) => k);
     const stages = p.rootPolicy === 'halving' ? Math.max(1, Math.ceil(Math.log2(n))) : 1;
     for (let s = 1; s <= stages; s++) {
       do {
@@ -110,15 +113,35 @@ export function searchBot(game, opts = {}, rng = Math.random) {
         alive = alive.slice(0, Math.ceil(alive.length / 2));
       }
     }
+    if (p.stats) return statsOf();
     if (alive.length < n) { // 半減で残った手の中から選ぶ
       let best = alive[0];
       for (const k of alive) if (sum[k] / cnt[k] > sum[best] / cnt[best]) best = k;
       return moves[best];
     }
   }
+  if (p.stats) return statsOf();
   let best = 0;
   if (p.rootPolicy === 'ucb') { for (let i = 1; i < n; i++) if (sum[i] / cnt[i] > sum[best] / cnt[best]) best = i; }
   else for (let i = 1; i < n; i++) if (sum[i] > sum[best]) best = i;
+  return moves[best];
+}
+
+// 複数の探索の統計（searchBot の opts.stats の戻り値）を合わせて 1 手選ぶ。
+// 候補の集合は prior だけで決まるので全員同じ。halving で最後まで残る手は読んだ山ごとにずれるので、
+// 半分以上の探索が最後まで残した手だけを残し（なければ全部）、その中で全員ぶんの合計 ÷ 回数が一番大きい手を選ぶ。
+export function mergeStats(list) {
+  const { moves } = list[0], n = moves.length;
+  if (n <= 1) return moves[0] || null;
+  const votes = moves.map((_, k) => list.reduce((s, r) => s + (r.alive[k] ? 1 : 0), 0));
+  const need = list.length / 2;
+  const ok = votes.some((v) => v >= need) ? (k) => votes[k] >= need : () => true;
+  let best = -1, bv = -Infinity;
+  for (let k = 0; k < n; k++) {
+    if (!ok(k)) continue;
+    const c = list.reduce((s, r) => s + r.cnt[k], 0), v = list.reduce((s, r) => s + r.sum[k], 0) / c;
+    if (v > bv) { bv = v; best = k; }
+  }
   return moves[best];
 }
 

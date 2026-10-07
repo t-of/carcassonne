@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { Game, TILE_KINDS, distributeState, rebuildFromDistributed } from '../engine.js';
 import { randomBot, greedyBot, greedyValues } from './bots.js';
-import { searchBot } from './search.js';
+import { mergeStats, searchBot } from './search.js';
 import { features, FEATURE_DIM } from './features.js';
 import { createNet, forward, netEvaluate, toJSON, fromJSON } from './net.js';
 
@@ -191,6 +191,15 @@ for (const seed of [5, 6, 7]) {
   const run = (o) => { let r = 1; const rng = () => (r = (r * 16807) % 2147483647) / 2147483647; return JSON.stringify(searchBot(g, { iters: 3, prior: (gg, mv) => greedyValues(gg, mv, () => 0.5), ...o }, rng)); };
   assert.equal(run({}), run({}), '同じ種・同じ状態なのに探索の手が違う');
   assert.equal(run({}), run({ candidates: 'top', rootPolicy: 'flat', evalMode: 'now', depth: 14 }), '既定の明示指定で動きが変わった');
+}
+
+// stats を返す探索を 3 本ぶん合わせても、合法手が 1 つ返る
+{
+  const g = new Game(2, { seed: 12 });
+  for (let i = 0; i < 6; i++) g.applyMove(greedyBot(g, () => 0.5));
+  const o = { candidates: 'diverse', rootPolicy: 'halving', depth: 8, iters: 3, stats: true };
+  const m = mergeStats([1, 2, 3].map(() => searchBot(g, o)));
+  assert.ok(g.legalMoves().some((x) => x.x === m.x && x.y === m.y && x.rot === m.rot && x.meepleKey === m.meepleKey), 'mergeStats が合法でない手を返した');
 }
 
 console.log('ok: すべて通った');

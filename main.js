@@ -7,6 +7,7 @@ import {
 } from './engine.js';
 // CPU の相手（学習の自己対局と同じ greedyBot）。ai/bots.js は Node からも import される、共通の 1 か所。
 import { greedyBot } from './ai/bots.js';
+import { mergeStats } from './ai/search.js';
 // 通信対戦（「みんなのスマホで」）。部屋のしくみ自体は room.js（正本は本部の online-kit）。
 import {
   createRoom, joinRoom, isValidCode, roomSanitizeName, roomLinkFor, roomCodeFromHash, roomQrSvg,
@@ -173,26 +174,40 @@ const isSpectating = () => !!game && gameRoles.slice(0, game.playerCount).every(
 let cpuLevel = load('cpuLevel', 'normal');
 if (cpuLevel !== 'strong') cpuLevel = 'normal';
 const isStrong = () => cpuLevel === 'strong' && !workerBroken;
-let worker = null, workerBroken = false, workerReq = 0;
-function stopWorker() { if (worker) { worker.terminate(); worker = null; } }
-// Worker に任せて手を返す。使えない・失敗・時間切れのときは greedyBot の手に落とす。
+let workers = [], workerBroken = false, workerReq = 0;
+// 「つよい」は Worker を複数並べて同じ局面を別の乱数で読み、候補ごとの統計を合わせて選ぶ（コア数 − 1、1〜4 本）。
+const workerCount = () => Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
+function stopWorker() { for (const w of workers) w.terminate(); workers = []; }
+// 使えない・全部失敗・時間切れのときは greedyBot の手に落とす。1 本でも返ってきていれば、その分だけで決める。
 // resolve は必ず 1 回呼ばれる（stopWorker で止めたときは呼ばれないので、呼び出し側は番号 cpuToken で古い結果を捨てる）。
 function pickStrongMove(g) {
   return new Promise((resolve) => {
-    const fallback = () => { workerBroken = true; stopWorker(); resolve(greedyBot(g)); };
+    const results = [];
+    let pending = 0, done = false, soft = 0, hard = 0;
+    const finish = (move) => { if (done) return; done = true; clearTimeout(soft); clearTimeout(hard); resolve(move); };
+    const fallback = () => { workerBroken = true; stopWorker(); finish(greedyBot(g)); };
+    const settle = () => { // 返ってきた分で決める。1 本もなければ false
+      if (!results.length) return false;
+      try { finish(mergeStats(results)); return true; } catch { return false; }
+    };
+    const arrived = () => { if (--pending <= 0 && !settle()) fallback(); };
     try {
-      if (!worker) {
-        worker = new Worker('./ai/worker.js', { type: 'module' });
-        worker.onerror = fallback;
-      }
+      if (!workers.length) workers = Array.from({ length: workerCount() }, () => new Worker('./ai/worker.js', { type: 'module' }));
       const id = ++workerReq;
-      const timer = setTimeout(fallback, 8000);
-      worker.onmessage = (e) => {
-        if (e.data.id !== id) return;
-        clearTimeout(timer);
-        if (e.data.move) resolve(e.data.move); else fallback();
-      };
-      worker.postMessage({ id, data: { playerCount: g.playerCount, deckOrder: g.deckOrder, log: g.log } });
+      pending = workers.length;
+      soft = setTimeout(settle, 3000); // 遅い 1 本を待たない（1 本も来ていなければ hard まで待つ）
+      hard = setTimeout(fallback, 8000);
+      for (const w of workers) {
+        let got = false;
+        w.onerror = () => { if (!got) { got = true; arrived(); } };
+        w.onmessage = (e) => {
+          if (e.data.id !== id || got) return;
+          got = true;
+          if (e.data.stats) results.push(e.data.stats);
+          arrived();
+        };
+        w.postMessage({ id, data: { playerCount: g.playerCount, deckOrder: g.deckOrder, log: g.log } });
+      }
     } catch { fallback(); }
   });
 }

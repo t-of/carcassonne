@@ -2,13 +2,20 @@
 // 探索 CPU の変種 A 対 B の対戦場。同じ山を先後（席）入れ替えて 2 局ずつ打つ（ペア）。
 //   node ai/arena.mjs --a '{"iters":12}' --b '{"candidates":"diverse","budget":20000}' --games 64 --seed 1 --out x.jsonl
 //   node ai/arena.mjs --summary a.jsonl b.jsonl ...    （jsonl を読んで集計だけ）
-// 変種は searchBot のオプションの JSON。--players 3 以上は A,B,A,B… と席に並べ、各陣営の最高点どうしを比べる。
+// 変種は searchBot のオプションの JSON。"ensemble":k を足すと、k 本の探索（各本は同じ予算・別の乱数）を mergeStats で合わせる（アプリの複数 Worker の再現。直列に回すので時間でなく iters / budget で指定する）。--players 3 以上は A,B,A,B… と席に並べ、各陣営の最高点どうしを比べる。
 import fs from 'node:fs';
 import { Game } from '../engine.js';
-import { searchBot } from './search.js';
+import { searchBot, mergeStats } from './search.js';
 
 const args = process.argv.slice(2);
 const arg = (name, def) => { const i = args.lastIndexOf(`--${name}`); return i < 0 ? def : args[i + 1]; };
+
+// ensemble:k なら k 本ぶんを合わせて 1 手選ぶ
+function pick(game, opts, rng) {
+  if (!opts.ensemble) return searchBot(game, opts, rng);
+  const { ensemble, ...o } = opts;
+  return mergeStats(Array.from({ length: ensemble }, () => searchBot(game, { ...o, stats: true }, rngOf(Math.floor(rng() * 4294967296)))));
+}
 
 function rngOf(seed) { let a = seed >>> 0 || 1; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
@@ -21,7 +28,7 @@ function play(A, B, seed, players, swap) {
   while (!game.gameOver) {
     const key = isA(game.currentPlayer) ? 'A' : 'B';
     const t0 = performance.now();
-    const m = searchBot(game, key === 'A' ? A : B, rng);
+    const m = pick(game, key === 'A' ? A : B, rng);
     t[key].ms += performance.now() - t0; t[key].moves++;
     if (!m) break;
     game.applyMove(m);
