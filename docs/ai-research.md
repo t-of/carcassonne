@@ -199,3 +199,12 @@ B のうち、先に測る価値があるのは B-1（草原専用）と B-3（�
 - BGA フォーラム「初心者の戦略」 — https://forum.boardgamearena.com/viewtopic.php?p=143662
 - BGA フォーラム「草原の得点」 — https://forum.boardgamearena.com/viewtopic.php?p=167093
 - Meeple Mountain「Carcassonne Strategy Guide」 — https://meeplemountain.com/articles/carcassonne-strategy-guide
+
+## 対局データ（2026-10-07、HAKUSAN、ai/analyze.mjs、2 人、iters 12）
+
+- search 対 search 2048 局: 1 人 84.6 点。内訳は都市 49%・道 25%・修道院 11%・草原 14%。**点差を決めたのは都市 55%・草原 29%・修道院 11%・道 6%**。草原は得点の 14% しかないのに、勝ち負けへの効き方は 2 倍。
+- search 対 greedy 1024 局（search 71.6%）: search の草原 18.1 点に対し greedy は 5.3 点。**点差の 46% が草原**（都市 44%、道 0%）。今の探索 CPU が greedy に勝てている理由の半分は草原。
+- ミープル: 1 人 1 局で都市 6.3・道 5.5・修道院 1.3・草原 1.7 回置く。置く回数は序盤に偏る（都市は序盤 3.7 回、中盤 1.3、終盤 1.3）。都市の 34%・修道院の 74% は最後まで回収されない。全手の 58% は置かない手。草原は平均 27% 地点（序盤）に置く。
+- 先手の勝率 55%（search 同士）。比べは先後の入れ替えが必須。
+- defaultEvaluate と最後の点差の相関: 0〜10% 地点 0.09、40〜50% 0.49、90〜100% 0.95。序盤の評価はほぼ当たらない（平均誤差 17 点）。序盤の手の良し悪しは読みの量で決まる。
+- 道は勝ち負けにほとんど効かない（差の 0〜6%）。道に置くミープルは、都市や草原に回したほうがよい可能性。
