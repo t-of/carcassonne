@@ -7,4 +7,4 @@
 #SBATCH -o logs/%x-%j.out
 #SBATCH -e logs/%x-%j.out
 S='"candidates":"diverse","rootPolicy":"halving","depth":8,"budget":3000'
-exec bash "$(dirname "$0")/job_arena.sh" "${1:-ens4}" "${2:-8}" --a "{$S,\"ensemble\":4}" --b "{$S}"
+exec bash "$SLURM_SUBMIT_DIR/jobs/job_arena.sh" "${1:-ens4}" "${2:-8}" --a "{$S,\"ensemble\":4}" --b "{$S}"
