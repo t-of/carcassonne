@@ -168,8 +168,34 @@ function nameFor(i) {
 const isCpu = (i) => gameRoles[i] === 'cpu';
 const isCpuTurn = () => !!game && isCpu(game.currentPlayer);
 const isSpectating = () => !!game && gameRoles.slice(0, game.playerCount).every((r) => r === 'cpu');
-// CPU の手を決める関数はここ 1 か所だけ（あとで「弱い・普通・強い」を足すときも、ここを分けるだけでよい）。
-function pickCpuMove(g) { return greedyBot(g); }
+// CPU の手を決める関数はここ 1 か所だけ。「ふつう」は貪欲法、「つよい」は探索（ai/worker.js で別スレッド）。
+// つよさは全席共通で、通信対戦でも CPU を回すホストの端末の設定を使う。
+let cpuLevel = load('cpuLevel', 'normal');
+if (cpuLevel !== 'strong') cpuLevel = 'normal';
+const isStrong = () => cpuLevel === 'strong' && !workerBroken;
+let worker = null, workerBroken = false, workerReq = 0;
+function stopWorker() { if (worker) { worker.terminate(); worker = null; } }
+// Worker に任せて手を返す。使えない・失敗・時間切れのときは greedyBot の手に落とす。
+// resolve は必ず 1 回呼ばれる（stopWorker で止めたときは呼ばれないので、呼び出し側は番号 cpuToken で古い結果を捨てる）。
+function pickStrongMove(g) {
+  return new Promise((resolve) => {
+    const fallback = () => { workerBroken = true; stopWorker(); resolve(greedyBot(g)); };
+    try {
+      if (!worker) {
+        worker = new Worker('./ai/worker.js', { type: 'module' });
+        worker.onerror = fallback;
+      }
+      const id = ++workerReq;
+      const timer = setTimeout(fallback, 8000);
+      worker.onmessage = (e) => {
+        if (e.data.id !== id) return;
+        clearTimeout(timer);
+        if (e.data.move) resolve(e.data.move); else fallback();
+      };
+      worker.postMessage({ id, data: { playerCount: g.playerCount, deckOrder: g.deckOrder, log: g.log } });
+    } catch { fallback(); }
+  });
+}
 
 // ================================================================
 // 通信対戦（みんなのスマホで）。ホスト方式: ホストだけが engine を回し、状態を配る。
@@ -217,7 +243,12 @@ let spectateSpeed = load('spectateSpeed', 'normal');
 if (!SPEED_MS[spectateSpeed]) spectateSpeed = 'normal';
 let spectatePaused = false;
 let cpuTimer = null;
-function clearCpuTimer() { if (cpuTimer != null) { clearTimeout(cpuTimer); cpuTimer = null; } }
+let cpuToken = 0; // 考え中の結果を捨てるための番号
+function clearCpuTimer() {
+  if (cpuTimer != null) { clearTimeout(cpuTimer); cpuTimer = null; }
+  cpuToken++;
+  stopWorker(); // 考えている途中なら止める（次に要るとき作り直す）
+}
 function cpuDelay() { return SPEED_MS[spectateSpeed] || SPEED_MS.normal; }
 
 function scheduleCpuTurn() {
@@ -225,16 +256,20 @@ function scheduleCpuTurn() {
   if (isOnlineGuest()) return; // CPU はホストの端末だけが回す
   if (!game || game.gameOver || !game.pendingTile || !isCpu(game.currentPlayer)) return;
   if (isSpectating() && spectatePaused) return;
-  cpuTimer = setTimeout(runCpuTurn, cpuDelay());
+  // 「つよい」は待ち時間と同時に考え始める（考える時間が速さの待ちに上乗せされない）
+  const think = isStrong() ? pickStrongMove(game) : null;
+  const token = cpuToken;
+  cpuTimer = setTimeout(() => runCpuTurn(think, token), cpuDelay());
 }
 
 // CPU の 1 手を、人が操作したときと同じ画面の流れ（ghost → commitPlacement → commitMeeple/skipMeeple）で進める。
 // こうすると「タイルを置いた場所」「置いた駒」が、既にある描き方でそのまま見える。
-function runCpuTurn() {
+async function runCpuTurn(think, token) {
   cpuTimer = null;
   if (!game || game.gameOver || !game.pendingTile || !isCpu(game.currentPlayer)) return;
   if (!drawn) { drawn = true; game.message = MSG_PLACE; soundPlace(); }
-  const move = pickCpuMove(game);
+  const move = think ? await think : greedyBot(game);
+  if (token !== cpuToken || !game || game.gameOver || !game.pendingTile || !isCpu(game.currentPlayer)) return; // 考えている間に局が変わった
   if (!move) return; // 置ける手がないことは起きないはずだが、念のため
   ghost = { x: move.x, y: move.y };
   previewRot = move.rot;
@@ -1044,7 +1079,7 @@ let pendingCount = null;
 let pendingRoles = [];
 let pendingNames = [];
 function renderRolesPicker() {
-  els.roles.replaceChildren(...pendingRoles.map((role, i) => {
+  const rows = pendingRoles.map((role, i) => {
     const row = document.createElement('div');
     row.className = 'role-row';
     const input = document.createElement('input');
@@ -1060,7 +1095,24 @@ function renderRolesPicker() {
     btn.textContent = role === 'cpu' ? 'CPU' : '人';
     row.append(input, btn);
     return row;
-  }));
+  });
+  if (pendingRoles.includes('cpu')) { // CPU がいるときだけ、つよさを選べる
+    const row = document.createElement('div');
+    row.className = 'role-row';
+    const label = document.createElement('span');
+    label.textContent = 'CPUのつよさ';
+    row.append(label);
+    for (const [level, text] of [['normal', 'ふつう'], ['strong', 'つよい']]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.level = level;
+      b.textContent = text;
+      b.setAttribute('aria-pressed', String(cpuLevel === level));
+      row.append(b);
+    }
+    rows.push(row);
+  }
+  els.roles.replaceChildren(...rows);
   els.roles.hidden = false;
   els.startBtn.hidden = false;
 }
@@ -1073,6 +1125,8 @@ els.playercount.addEventListener('click', (e) => {
   renderRolesPicker();
 });
 els.roles.addEventListener('click', (e) => {
+  const lv = e.target.closest('button[data-level]');
+  if (lv) { cpuLevel = lv.dataset.level; save('cpuLevel', cpuLevel); renderRolesPicker(); return; }
   const btn = e.target.closest('button[data-i]');
   if (!btn) return;
   const i = Number(btn.dataset.i);
