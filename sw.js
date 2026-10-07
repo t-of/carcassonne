@@ -9,7 +9,7 @@
 // ブラウザの HTTP キャッシュを通さない（install は reload、fetch は no-cache）。古い main.js と新しい index.html が混ざって動かなくなるのを防ぐ。
 
 const PREFIX = 'carcassonne-';
-const VERSION = 'v15';
+const VERSION = 'v16';
 const CACHE = `${PREFIX}${VERSION}`;
 const FONT_CACHE = `${PREFIX}fonts`;
 
@@ -20,6 +20,7 @@ const SHELL = [
   './main.js',
   './engine.js',
   './ai/bots.js',
+  './ai/search.js',
   './pixel-tiles.js',
   './online.js',
   './room.js',
