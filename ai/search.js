@@ -19,22 +19,31 @@ export function defaultEvaluate(game, me, p = DEFAULTS) {
   return v;
 }
 
+// 軽いポリシーで 1 手進めた盤を返す（打てる手がなければ null）。
+// ランダムに rollK 手だけ選び、その場の得点が一番大きいものを打つ（rollK=1 ならランダム）。
+// 試しに打った複製がそのまま次の盤になるので、選んだ手をもう一度 applyMove し直さない。
 function rolloutMove(game, rng, p) {
   const moves = game.legalMoves();
   if (!moves.length) return null;
-  // 軽いポリシー: ランダムに rollK 手だけ選び、その場の得点が一番大きいものを打つ（rollK=1 ならランダム）
   const player = game.currentPlayer;
-  let best = null, bv = -Infinity;
   const k = Math.min(p.rollK, moves.length);
+  if (k === 1) { game.applyMove(moves[Math.floor(rng() * moves.length)]); return game; }
+  let best = -1, bv = -Infinity, bg = null;
+  const gain = new Map(); // 同じ手を 2 度引いたら、打ち直さず得点を使い回す
   for (let i = 0; i < k; i++) {
-    const m = moves[Math.floor(rng() * moves.length)];
-    if (k === 1) return m;
-    const g = game.clone(); const before = g.players[player].score;
-    g.applyMove(m);
-    const v = g.players[player].score - before + (m.meepleKey != null ? -p.meeplePenalty : 0) + rng() * 1e-3;
-    if (v > bv) { bv = v; best = m; }
+    const mi = Math.floor(rng() * moves.length), m = moves[mi];
+    let g = null, d = gain.get(mi);
+    if (d === undefined && !game.mayScoreIfPlayed(m)) { d = 0; gain.set(mi, 0); } // 得点が入らないと分かる手は打ってみない
+    if (d === undefined) {
+      g = game.clone(); const before = g.players[player].score;
+      g.applyMove(m);
+      d = g.players[player].score - before; gain.set(mi, d);
+    }
+    const v = d + (m.meepleKey != null ? -p.meeplePenalty : 0) + rng() * 1e-3;
+    if (v > bv) { bv = v; best = mi; bg = g; }
   }
-  return best;
+  if (!bg) { bg = game.clone(); bg.applyMove(moves[best]); }
+  return bg;
 }
 
 export function searchBot(game, opts = {}, rng = Math.random) {
@@ -67,13 +76,13 @@ export function searchBot(game, opts = {}, rng = Math.random) {
   let steps = 0, samples = 0;
   // 候補 k を 1 回読んで評価値を足す（deck は呼び出し側が混ぜた山）
   const sample = (k, deck) => {
-    const g = base.clone();
+    let g = base.clone();
     g.deckOrder = deck; g.deckPos = 0;
     g.applyMove(moves[k]); steps++;
     for (let d = 0; d < depth && !g.gameOver; d++) {
-      const m = rolloutMove(g, rng, p);
-      if (!m) break;
-      g.applyMove(m); steps++;
+      const next = rolloutMove(g, rng, p);
+      if (!next) break;
+      g = next; steps++;
     }
     sum[k] += p.evalMode === 'final' && g.gameOver && !p.evaluate ? finalDiff(g, me) : evalFn(g, me, p);
     cnt[k]++; samples++;

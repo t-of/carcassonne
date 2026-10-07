@@ -111,7 +111,12 @@ export const EDGE_MID = [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]];
 export const EDGE_CORNERS = [[[0, 0], [1, 0]], [[1, 0], [1, 1]], [[1, 1], [0, 1]], [[0, 1], [0, 0]]];
 
 // 1 タイル分の見取り図を作る（都市・道・草原区画・修道院・つながりを計算）
+// kind・rot ごとに 1 回だけ計算して使い回す（返す見取り図は読むだけで、書き換えない）。
 export function analyzeTile(kind, rot) {
+  if (!kind._infoCache) kind._infoCache = [null, null, null, null];
+  return kind._infoCache[rot] || (kind._infoCache[rot] = analyzeTileRaw(kind, rot));
+}
+function analyzeTileRaw(kind, rot) {
   const absEdges = absoluteEdges(kind, rot);
   const cityGroupAt = [0, 1, 2, 3].map((d) => groupAt(kind, rot, kind.cityGroupOfEdge, d));
   const roadGroupAt = [0, 1, 2, 3].map((d) => groupAt(kind, rot, kind.roadGroupOfEdge, d));
@@ -198,11 +203,12 @@ export class DSU {
 // その場を書き換えるので Set/配列は複製が必要。meeples の要素自体はあとで書き換わらないので参照共有でよい。
 // tiles は数ではなく Set のまま持つ（道・都市が輪になって、同じタイルを2つの端から数えてしまう
 // ことがあるので、タイル数のかわりに単なる足し算にはできない。ponytail で数に倒そうとして壊した）。
+// tiles・touches は作ったあと（合体では新しい Set を作る）書き換わらないので、複製とのあいだで共有する。
 function cloneFeatureMeta(m) {
   const c = { type: m.type, meeples: m.meeples.slice(), awarded: m.awarded };
-  if (m.tiles) c.tiles = new Set(m.tiles);
+  if (m.tiles) c.tiles = m.tiles;
   if (m.openEnds) { c.openEnds = new Set(m.openEnds); c.pennants = m.pennants; c.done = m.done; }
-  if (m.touches) c.touches = new Set(m.touches);
+  if (m.touches) c.touches = m.touches;
   return c;
 }
 
@@ -301,6 +307,7 @@ export class Game {
       // （isValidPlacement を rot ごとに呼ぶと同じ盤面参照を4回繰り返すことになる）。
       const req = this.neighborRequirements(x, y);
       if (!req) continue;
+      const memo = []; // 同じマスの 4 つの向きで、隣の区画の駒の有無の調べを使い回す
       for (let rot = 0; rot < 4; rot++) {
         if (!matchesRequirements(kind, rot, req)) continue;
         moves.push({ x, y, rot, meepleKey: null });
@@ -308,7 +315,7 @@ export class Game {
         // 駒の置ける区画は、隣とつながって既に駒入りの区画になることがある（実際に置いてみないと
         // 分からない）ので、以前は仮に複製した盤へ置いて調べていた。手数が多いタイルほど clone() が
         // 積み重なって遅かったので、置かずに隣の区画だけたどって調べる（下の meepleOptionsIfPlaced）。
-        for (const opt of this.meepleOptionsIfPlaced(x, y, rot, this.pendingTile.kindIndex)) {
+        for (const opt of this.meepleOptionsIfPlaced(x, y, rot, this.pendingTile.kindIndex, memo)) {
           moves.push({ x, y, rot, meepleKey: opt.key });
         }
       }
@@ -334,14 +341,85 @@ export class Game {
     return events;
   }
 
+  // applyMove(move) で今の手番の人の得点が変わるかもしれないか。false なら「確実に変わらない」（true は「分からない」も含む）。
+  // 探索が、得点の出ない手のためだけに clone() して打ってみるのを省くための安い先読み。
+  // 得点が入るのは、(1) 山札が尽きて最終採点に入る、(2) 修道院が囲まれる、(3) 置いたタイルの道・都市が閉じる、のどれか。
+  mayScoreIfPlayed(move) {
+    const { x, y, rot } = move;
+    const kind = TILE_KINDS[this.pendingTile.kindIndex];
+    if (this.mayEndGame(x, y)) return true;
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      const cx = x + dx, cy = y + dy;
+      if (dx === 0 && dy === 0) { if (!kind.cloister) continue; } else {
+        const c = this.cloisters.get(tileKey(cx, cy));
+        if (!c || c.awarded || !c.meeple) continue;
+      }
+      let full = true;
+      for (let ex = -1; ex <= 1 && full; ex++) for (let ey = -1; ey <= 1; ey++) {
+        if ((ex === 0 && ey === 0) || (cx + ex === x && cy + ey === y)) continue;
+        if (!this.board.has(tileKey(cx + ex, cy + ey))) { full = false; break; }
+      }
+      if (full) return true;
+    }
+    for (const type of ['city', 'road']) {
+      const groups = kind[type + 'Groups'], table = kind[type + 'GroupOfEdge'], keyOf = type === 'city' ? cityKey : roadKey;
+      const n = groups.length;
+      const comp = groups.map((_, i) => i);
+      const roots = [], joined = [];
+      for (let i = 0; i < n; i++) {
+        const rs = []; let j = 0;
+        for (const li of groups[i].edges) {
+          const d = (li + rot) % 4, nx = x + DX[d], ny = y + DY[d];
+          const nb = this.board.get(tileKey(nx, ny));
+          if (!nb) continue;
+          j++;
+          const r = this.dsu.find(keyOf(nx, ny, groupAt(TILE_KINDS[nb.kindIndex], nb.rot, TILE_KINDS[nb.kindIndex][type + 'GroupOfEdge'], OPP[d])));
+          if (!rs.includes(r)) rs.push(r);
+        }
+        roots.push(rs); joined.push(j);
+      }
+      // 同じ隣の区画につながる組どうしは 1 つにまとまる（小さな Union-Find）
+      const find = (i) => (comp[i] === i ? i : (comp[i] = find(comp[i])));
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+        if (roots[i].some((r) => roots[j].includes(r))) comp[find(i)] = find(j);
+      }
+      // まとまりごとの開いた端の数 = 自分の端 − つなぐ辺の 2 倍 + つながる隣の区画の開いた端（重複なし）
+      for (let c = 0; c < n; c++) {
+        if (find(c) !== c) continue;
+        let open = 0; const seen = [];
+        for (let i = 0; i < n; i++) {
+          if (find(i) !== c) continue;
+          open += groups[i].edges.length - 2 * joined[i];
+          for (const r of roots[i]) if (!seen.includes(r)) { seen.push(r); open += this.dsu.meta.get(r).openEnds.size; }
+        }
+        if (open <= 0) return true;
+      }
+    }
+    return false;
+  }
+
+  // (x,y) に置いたあと、山札の次のタイルが置ける場所がなくなって終局しうるか。しうるなら true。
+  // 次のタイルが (x,y) と隣り合わない空きマスに置けるなら、その場所は今の置き方に影響されないので確実に終局しない。
+  mayEndGame(x, y) {
+    if (this.deckPos >= this.deckOrder.length) return true;
+    const kind = TILE_KINDS[this.deckOrder[this.deckPos]];
+    for (const [cx, cy] of this.frontierSet.values()) {
+      if (Math.abs(cx - x) + Math.abs(cy - y) <= 1) continue;
+      const req = this.neighborRequirements(cx, cy);
+      if (!req) continue;
+      for (let r = 0; r < 4; r++) if (matchesRequirements(kind, r, req)) return false;
+    }
+    return true;
+  }
+
   // ---- 山札 ----
   drawNext() {
     while (this.deckPos < this.deckOrder.length) {
       const kindIndex = this.deckOrder[this.deckPos];
-      const options = this.frontierOptions(kindIndex);
-      if (options.some((o) => o.rotations.length)) {
+      const rot = this.firstPlaceableRot(kindIndex);
+      if (rot >= 0) {
         this.deckPos++;
-        this.pendingTile = { kindIndex, rot: options.find((o) => o.rotations.length).rotations[0] };
+        this.pendingTile = { kindIndex, rot };
         this.message = '「タイルを引く」を押してください';
         return;
       }
@@ -355,6 +433,17 @@ export class Game {
   // frontierSet（置くたびに placeTileOnBoard が差分更新している）を並べ直すだけ。盤面全体は見ない。
   frontier() {
     return [...this.frontierSet.values()];
+  }
+
+  // frontierOptions の「最初に置ける空きマスの最初の向き」だけを、見つかった時点で打ち切って返す（なければ -1）。
+  firstPlaceableRot(kindIndex) {
+    const kind = TILE_KINDS[kindIndex];
+    for (const [x, y] of this.frontierSet.values()) {
+      const req = this.neighborRequirements(x, y);
+      if (!req) continue;
+      for (let r = 0; r < 4; r++) if (matchesRequirements(kind, r, req)) return r;
+    }
+    return -1;
   }
 
   frontierOptions(kindIndex) {
@@ -588,24 +677,48 @@ export class Game {
   // legalMoves() 用: (x,y,rot) にそのタイルを置いたら駒を置ける区画を、実際には置かずに求める。
   // 「置いたときに隣とつながる先の区画が既に駒入りかどうか」だけを見ればよい（新しく置く区画自身は
   // まだ誰も駒を置いていない）。meepleOptions(x, y) を実際の配置後に呼んだときと同じ並び・同じ結果になる。
-  meepleOptionsIfPlaced(x, y, rot, kindIndex) {
+  // memo は、同じ (x,y) で盤が変わらない間だけ使い回せる（legalMoves が 1 マスごとに作る）。
+  meepleOptionsIfPlaced(x, y, rot, kindIndex, memo = []) {
     const kind = TILE_KINDS[kindIndex];
     const info = analyzeTile(kind, rot);
     const at = featureAnchors(kindIndex, rot);
-    const neighborHasMeeple = (d, key) => {
-      const nx = x + DX[d], ny = y + DY[d];
-      const nb = this.board.get(tileKey(nx, ny));
-      return nb ? { nb, nx, ny } : null;
+    const neighborHasMeeple = (d) => {
+      let e = memo[d];
+      if (e === undefined) {
+        const nx = x + DX[d], ny = y + DY[d];
+        const nb = this.board.get(tileKey(nx, ny));
+        e = memo[d] = nb ? { nb, nx, ny, city: undefined, road: undefined, field: undefined } : null;
+      }
+      return e;
+    };
+    // 隣の d 側の都市・道に駒が乗っているか
+    const nbOccupied = (n, d, type) => {
+      if (n[type] === undefined) {
+        const nbKind = TILE_KINDS[n.nb.kindIndex];
+        const nbGi = groupAt(nbKind, n.nb.rot, type === 'city' ? nbKind.cityGroupOfEdge : nbKind.roadGroupOfEdge, OPP[d]);
+        n[type] = this.dsu.meta_((type === 'city' ? cityKey : roadKey)(n.nx, n.ny, nbGi)).meeples.length > 0;
+      }
+      return n[type];
+    };
+    // 隣の d 側の草原の 2 点（ab=0,1）がつながる先の根と、そこに駒があるか。区画がなければ null
+    const nbFields = (n, d) => {
+      if (n.field === undefined) {
+        const nbInfo = analyzeTile(TILE_KINDS[n.nb.kindIndex], n.nb.rot);
+        n.field = [0, 1].map((ab) => {
+          const nbRegion = this.regionIndexOfPoint(nbInfo, 2 * OPP[d] + (1 - ab));
+          if (nbRegion == null) return null;
+          const root = this.dsu.find(fieldKey(n.nx, n.ny, nbRegion));
+          return { root, occ: this.dsu.meta.get(root).meeples.length > 0 };
+        });
+      }
+      return n.field;
     };
     const options = [];
     kind.cityGroups.forEach((g, gi) => {
       const occupied = g.edges.some((li) => {
         const d = (li + rot) % 4;
         const n = neighborHasMeeple(d);
-        if (!n) return false;
-        const nbKind = TILE_KINDS[n.nb.kindIndex];
-        const nbGi = groupAt(nbKind, n.nb.rot, nbKind.cityGroupOfEdge, OPP[d]);
-        return this.dsu.meta_(cityKey(n.nx, n.ny, nbGi)).meeples.length > 0;
+        return !!n && nbOccupied(n, d, 'city');
       });
       if (!occupied) options.push({ key: cityKey(x, y, gi), type: 'city', anchor: at.city[gi] });
     });
@@ -613,10 +726,7 @@ export class Game {
       const occupied = g.edges.some((li) => {
         const d = (li + rot) % 4;
         const n = neighborHasMeeple(d);
-        if (!n) return false;
-        const nbKind = TILE_KINDS[n.nb.kindIndex];
-        const nbGi = groupAt(nbKind, n.nb.rot, nbKind.roadGroupOfEdge, OPP[d]);
-        return this.dsu.meta_(roadKey(n.nx, n.ny, nbGi)).meeples.length > 0;
+        return !!n && nbOccupied(n, d, 'road');
       });
       if (!occupied) options.push({ key: roadKey(x, y, gi), type: 'road', anchor: at.road[gi] });
     });
@@ -626,24 +736,21 @@ export class Game {
     // 見た目は別区画でも実は 1 つにつながるので、先に小さな Union-Find でまとめてから調べる。
     const regionRoot = info.regions.map((_, i) => i);
     const findRegion = (a) => (regionRoot[a] === a ? a : (regionRoot[a] = findRegion(regionRoot[a])));
-    const touchedRoots = info.regions.map(() => new Set()); // 区画ごとに触れている隣の根（dsu の find 済みキー）
+    const touchedRoots = info.regions.map(() => new Map()); // 区画ごとに触れている隣の根（dsu の find 済みキー）→ 駒の有無
     for (let d = 0; d < 4; d++) {
       const n = neighborHasMeeple(d);
       if (!n) continue;
-      const nbKind = TILE_KINDS[n.nb.kindIndex];
-      const nbInfo = analyzeTile(nbKind, n.nb.rot);
+      const nf = nbFields(n, d);
       for (const ab of [0, 1]) {
         const ri = info.regions.findIndex((r) => r.points.includes(2 * d + ab));
-        if (ri < 0) continue;
-        const nbRegion = this.regionIndexOfPoint(nbInfo, 2 * OPP[d] + (1 - ab));
-        if (nbRegion == null) continue;
-        touchedRoots[ri].add(this.dsu.find(fieldKey(n.nx, n.ny, nbRegion)));
+        if (ri < 0 || !nf[ab]) continue;
+        touchedRoots[ri].set(nf[ab].root, nf[ab].occ);
       }
     }
     for (let i = 0; i < info.regions.length; i++) {
       for (let j = i + 1; j < info.regions.length; j++) {
         let shared = false;
-        for (const r of touchedRoots[i]) if (touchedRoots[j].has(r)) { shared = true; break; }
+        for (const r of touchedRoots[i].keys()) if (touchedRoots[j].has(r)) { shared = true; break; }
         if (shared) { const a = findRegion(i), b = findRegion(j); if (a !== b) regionRoot[a] = b; }
       }
     }
@@ -652,7 +759,7 @@ export class Game {
       let occupied = false;
       for (let k = 0; k < info.regions.length && !occupied; k++) {
         if (findRegion(k) !== root) continue;
-        for (const nbRoot of touchedRoots[k]) if (this.dsu.meta.get(nbRoot).meeples.length > 0) { occupied = true; break; }
+        for (const occ of touchedRoots[k].values()) if (occ) { occupied = true; break; }
       }
       if (!occupied) options.push({ key: fieldKey(x, y, ri), type: 'field', anchor: at.field[ri] });
     });
